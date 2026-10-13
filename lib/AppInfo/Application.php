@@ -3,7 +3,7 @@
  * Archive Manager for Nextcloud
  *
  * @author    Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2022, 2024 Claus-Justus Heine <himself@claus-justus-heine.de>
+ * @copyright 2022, 2024, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license   AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,41 +22,29 @@
 
 namespace OCA\FilesArchive\AppInfo;
 
+use Exception;
+
 use OCP\AppFramework\App;
+use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
-use OCP\AppFramework\Bootstrap\IBootContext;
-use OCP\IConfig;
 use OCP\Files\Config\IMountProviderCollection;
-
+use OCP\IConfig;
 use Psr\Container\ContainerInterface;
 
 use OCA\FilesArchive\Listener\Registration as ListenerRegistration;
-
-use OCA\FilesArchive\Service\MimeTypeService;
-
 use OCA\FilesArchive\Mount\MountProvider as ArchiveMountProvider;
 use OCA\FilesArchive\Notification\Notifier;
+use OCA\FilesArchive\Service\MimeTypeService;
+use OCA\FilesArchive\Toolkit\AppInfo\AbstractApplication;
 
-include_once __DIR__ . '/../../vendor/autoload.php';
+include_once __DIR__ . '/../Toolkit/AppInfo/AbstractApplication.php';
 
 /**
  * App entry point.
  */
-class Application extends App implements IBootstrap
+class Application extends AbstractApplication
 {
-  use \OCA\FilesArchive\Toolkit\Traits\AppNameTrait;
-
-  /** @var string */
-  protected $appName;
-
-  /** Constructor. */
-  public function __construct()
-  {
-    $this->appName = $this->getAppInfoAppName(__DIR__);
-    parent::__construct($this->appName);
-  }
-
   /**
    * Called later than "register".
    *
@@ -68,6 +56,13 @@ class Application extends App implements IBootstrap
   {
     $context->injectFn(function(IMountProviderCollection $mountProviderCollection, ArchiveMountProvider $mountProvider) {
       $mountProviderCollection->registerProvider($mountProvider, PHP_INT_MAX - 1);
+    });
+
+    // Make the archive extension to MIME-type mappings known to the MIME-type
+    // detector for every request, so that newly uploaded archives are detected
+    // correctly without having to persist anything into config/.
+    $context->injectFn(function(MimeTypeService $mimeTypeService) {
+      $mimeTypeService->registerMimeTypeMappings();
     });
   }
 
@@ -81,6 +76,8 @@ class Application extends App implements IBootstrap
    */
   public function register(IRegistrationContext $context): void
   {
+    parent::register($context);
+
     // Register listeners
     ListenerRegistration::register($context);
 

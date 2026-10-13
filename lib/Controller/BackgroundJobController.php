@@ -3,7 +3,7 @@
  * Archive Manager for Nextcloud
  *
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2022, 2023, 2024, 2025 Claus-Justus Heine <himself@claus-justus-heine.de>
+ * @copyright 2022-2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,13 +22,14 @@
 
 namespace OCA\FilesArchive\Controller;
 
+use SensitiveParameter;
 use Throwable;
 
 use OC\Files\Storage\Wrapper\Wrapper as WrapperStorage;
 
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
-use OCP\AppFramework\Http\Attribute;
+use OCP\AppFramework\Http\Attribute as CoreAttributes;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\BackgroundJob\IJobList;
@@ -40,8 +41,10 @@ use OCP\IRequest;
 use Psr\Log\LoggerInterface;
 
 use OCA\FilesArchive\BackgroundJob\ArchiveJob;
+use OCA\FilesArchive\BackgroundJob\ArchiveJobArgument;
 use OCA\FilesArchive\Constants;
 use OCA\FilesArchive\Service\NotificationService;
+use OCA\FilesArchive\Toolkit\Exceptions\EnduserNotificationException;
 use OCA\FilesArchive\Toolkit\Service\UserScopeService;
 
 /**
@@ -55,11 +58,17 @@ class BackgroundJobController extends Controller
   use \OCA\FilesArchive\Toolkit\Traits\UserRootFolderTrait;
   use TargetPathTrait;
 
-  const OPERATION_MOUNT = ArchiveJob::TARGET_MOUNT;
-  const OPERATION_EXTRACT = ArchiveJob::TARGET_EXTRACT;
+  public const OPERATION_MOUNT = ArchiveJob::TARGET_MOUNT;
+  public const OPERATION_EXTRACT = ArchiveJob::TARGET_EXTRACT;
+
+  /** @var string */
+  private string $targetBaseNameTemplate;
 
   /** @var string */
   private string $mountPointTemplate;
+
+  /** @var array<string, bool> */
+  private array $stripCommonPathPrefixDefault;
 
   // phpcs:ignore Squiz.Commenting.FunctionComment.Missing
   public function __construct(
@@ -76,8 +85,17 @@ class BackgroundJobController extends Controller
   ) {
     parent::__construct($appName, $request);
 
+    $this->targetBaseNameTemplate = $cloudConfig->getUserValue(
+      $this->userId, $this->appName, SettingsController::EXTRACT_TARGET_TEMPLATE, SettingsController::FOLDER_TEMPLATE_DEFAULT);
+
     $this->mountPointTemplate = $cloudConfig->getUserValue(
       $this->userId, $this->appName, SettingsController::MOUNT_POINT_TEMPLATE, SettingsController::FOLDER_TEMPLATE_DEFAULT);
+
+    $this->stripCommonPathPrefixDefault[ArchiveJob::TARGET_MOUNT] = (bool)$cloudConfig->getUserValue(
+      $this->userId, $this->appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT, false);
+
+    $this->stripCommonPathPrefixDefault[ArchiveJob::TARGET_EXTRACT] = (bool)$cloudConfig->getUserValue(
+      $this->userId, $this->appName, SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT, false);
   }
   // phpcs:enable
 
@@ -94,11 +112,19 @@ class BackgroundJobController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'POST',
+    url: '/archive/schedule/{operation}/{archivePath}/{destinationPath}',
+    defaults: [
+      'destinationPath' => null,
+    ],
+  )]
   public function schedule(
     string $operation,
     string $archivePath,
     ?string $destinationPath = null,
+    #[SensitiveParameter]
     ?string $passPhrase = null,
     ?bool $stripCommonPathPrefix = null,
   ):DataResponse {
@@ -126,10 +152,10 @@ class BackgroundJobController extends Controller
       ArchiveJob::TARGET_KEY => $operation,
       ArchiveJob::USER_ID_KEY => $this->userId,
       ArchiveJob::SOURCE_PATH_KEY => $archivePath,
-      ArchiveJob::SOURCE_ID_KEY => $archiveNode->getId(),
+      ArchiveJob::SOURCE_ID_KEY => (string)$archiveNode->getId(),
       ArchiveJob::DESTINATION_PATH_KEY => $destinationPath,
       ArchiveJob::ARCHIVE_PASSPHRASE_KEY => $passPhrase,
-      ArchiveJob::STRIP_COMMON_PATH_PREFIX_KEY => $stripCommonPathPrefix,
+      ArchiveJob::STRIP_COMMON_PATH_PREFIX_KEY => $stripCommonPathPrefix ?? $this->stripCommonPathPrefixDefault[$operation],
       ArchiveJob::NEEDS_AUTHENTICATION_KEY => $needsAuthentication ?? false,
       ArchiveJob::AUTH_TOKEN_KEY => $tokenSecret ?? null
     ]);
@@ -158,7 +184,14 @@ class BackgroundJobController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'DELETE',
+    url: '/archive/schedule/{operation}/{archivePath}/{destinationPath}',
+    defaults: [
+      'destinationPath' => null,
+    ],
+  )]
   public function cancel(
     string $operation,
     string $archivePath,
@@ -181,14 +214,15 @@ class BackgroundJobController extends Controller
           && ($destinationPath === null || $job->getDestinationPath() === $destinationPath)) {
         $jobArguments = $job->getArgument();
         $this->jobList->remove($job, $jobArguments);
+         $argumentDTO = ArchiveJobArgument::fromArray($jobArguments);
         if ($this->jobList->has($job, $jobArguments)) {
-          $failed[] = $job;
-          $messages[] = $this->l->t('Cancelling %s-job for archive file "%s" failed.', [
+          $failed[] = $argumentDTO;
+          $messages[] = $this->l->t('Cancelling %1$s-job for archive file "%2$s" failed.', [
             $operation,
             $archivePath,
           ]);
         } else {
-          $removed[] = $jobArguments;
+          $removed[] = $argumentDTO;
           $this->notificationService->deleteScheduledJobNotification(
             $job->getUserId(),
             $job->getTarget(),
@@ -214,7 +248,14 @@ class BackgroundJobController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'GET',
+    url: '/archive/schedule/{operation}/{archivePath}/{destinationPath}',
+    defaults: [
+      'destinationPath' => null,
+    ],
+  )]
   public function status(
     string $archivePath,
     ?string $destinationPath = null,

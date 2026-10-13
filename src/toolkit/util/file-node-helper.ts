@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * @copyright Copyright (c) 2024, 2025, 2025, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
@@ -15,50 +17,41 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @module
  */
 
-import { getCurrentUser } from '@nextcloud/auth';
-import {
-  type IFileType,
-
-  File,
-  Folder,
+import type {
+  IFile,
+  IFileType,
+  IFolder,
+  NodeData,
 } from '@nextcloud/files';
+import type { LegacyFileInfo } from '../../../build/ts-types/php-modules/Toolkit/DTO.ts';
+
+import { getCurrentUser } from '@nextcloud/auth';
+import { File, FileType, Folder } from '@nextcloud/files';
 import { generateRemoteUrl } from '@nextcloud/router';
 import { join } from 'path';
 
-export interface FileInfoDTO {
-  fileid: string; // corresponds to the PHP NodeTrait. Use string in order to avoid integer overflow.
-  path: string;
-  topLevelFolder: string;
-  relativePath: string;
-  basename: string;
-  lastmod: number;
-  mime: string;
-  size: number;
-  type: IFileType;
-  hasPreview: boolean;
-  permissions: number;
-  'mount-type': string;
-  etag: string;
-}
+export type FileInfoDTO<NodeType extends IFileType = IFileType> = LegacyFileInfo<NodeType extends 'file' ? 'file' : 'dir'>;
 
 /**
  * @param fileInfo File-info object.
  *
  * @param owner If undefined the current user is used.
- *
- * @return Result.
  */
-export const fileInfoToNode = (fileInfo: FileInfoDTO, owner?: string) => {
+export function fileInfoToNode(fileInfo: FileInfoDTO<typeof FileType.File>, owner?: string): IFile;
+export function fileInfoToNode(fileInfo: FileInfoDTO<typeof FileType.Folder>, owner?: string): IFolder;
+export function fileInfoToNode(fileInfo: FileInfoDTO, owner?: string) {
   owner = owner || getCurrentUser()!.uid;
   const userFrontEndFolder = '/' + owner + '/files';
   if (fileInfo.topLevelFolder !== userFrontEndFolder) {
     throw new Error(`${fileInfo.path} is located outside of the front end user file space ${userFrontEndFolder}.`);
   }
-  const nodeData = {
-    id: fileInfo.fileid,
-    source: generateRemoteUrl(join('dav/files', owner, fileInfo.relativePath)),
+  const nodeData: NodeData = {
+    id: parseInt(fileInfo.fileid, 10),
+    source: generateRemoteUrl(join('dav/files', owner, fileInfo.relativePath!)),
     root: `/files/${owner}`,
     mime: fileInfo.mime,
     mtime: new Date(fileInfo.lastmod * 1000),
@@ -70,5 +63,5 @@ export const fileInfoToNode = (fileInfo: FileInfoDTO, owner?: string) => {
       'has-preview': fileInfo.hasPreview,
     },
   };
-  return fileInfo.type === 'file' ? new File(nodeData) : new Folder(nodeData);
-};
+  return fileInfo.type === FileType.File ? new File(nodeData) as IFile : new Folder(nodeData) as IFolder;
+}

@@ -1,7 +1,7 @@
 <?php
 /**
  * @author    Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2022, 2024 Claus-Justus Heine
+ * @copyright 2022, 2024, 2026 Claus-Justus Heine
  * @license   AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -34,36 +34,45 @@ use OCP\Files\FileInfo;
  */
 class ArchiveMountMapper extends QBMapper
 {
-  /** @var ICrypto */
-  private $cryptor;
+  public const TABLE_NAME = 'mounts';
+  protected const TABLE_ALIAS = 'fam';
 
   /**
    * @param IDBConnection $dbConnection
    *
-   * @param ICrypto $cloudCryptor
+   * @param ICrypto $cryptor
+   *
+   * @param string $appName
    */
   public function __construct(
     IDBConnection $dbConnection,
-    ICrypto $cloudCryptor,
+    protected ICrypto $cryptor,
+    protected string $appName,
   ) {
-    parent::__construct($dbConnection, 'files_archive_mounts', ArchiveMount::class);
-    $this->cryptor = $cloudCryptor;
+    parent::__construct($dbConnection, $this->appName . '_' . self::TABLE_NAME, ArchiveMount::class);
   }
 
   /**
-   * Find all archive-mounts of the given user.
+   * Find all archive-mounts of the given user or for all users. If $userId is
+   * null all mount entities are returned, sorted by user id in ascending
+   * order.
    *
-   * @param string $userId
+   * @param ?string $userId
    *
    * @return array
    */
-  public function findAll(string $userId):array
+  public function findAll(?string $userId = null): array
   {
     $qb = $this->db->getQueryBuilder();
 
     $qb->select('*')
-      ->from($this->getTableName())
-      ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+       ->from($this->getTableName());
+
+    if ($userId !== null) {
+      $qb->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+    } else {
+      $qb->orderBy('user_id', 'ASC');
+    }
 
     return $this->findEntities($qb);
   }
@@ -75,7 +84,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return null|ArchiveMount
    */
-  public function findByMountPath(string $mountPath):?ArchiveMount
+  public function findByMountPath(string $mountPath): ?ArchiveMount
   {
     $qb = $this->db->getQueryBuilder();
 
@@ -93,7 +102,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return null|ArchiveMount
    */
-  public function findByMountPointFileId(int $mountPointFileId):?ArchiveMount
+  public function findByMountPointFileId(int $mountPointFileId): ?ArchiveMount
   {
     $qb = $this->db->getQueryBuilder();
 
@@ -111,7 +120,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return null|ArchiveMount
    */
-  public function findByMountPointFolder(Folder $mountPointFolder):?ArchiveMount
+  public function findByMountPointFolder(Folder $mountPointFolder): ?ArchiveMount
   {
     $qb = $this->db->getQueryBuilder();
 
@@ -131,17 +140,18 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return array
    */
-  public function findByArchivePath(string $userId, string $archivePath):array
+  public function findByArchivePath(string $userId, string $archivePath): array
   {
     $qb = $this->db->getQueryBuilder();
 
     $qb->select('*')
-      ->from($this->getTableName())
-      ->where($qb->expr()->eq('archive_file_path_hash', $qb->createNamedParameter(md5($archivePath))))
-      ->andWhere(
-        $qb->expr()->eq(
-          'user_id',
-          $qb->createNamedParameter($userId)));
+       ->from($this->getTableName(), self::TABLE_ALIAS)
+       ->leftJoin(self::TABLE_ALIAS, 'filecache', 'fc', $qb->expr()->eq(self::TABLE_ALIAS . '.archive_file_id', 'fc.fileid'))
+       ->where($qb->expr()->eq('fc.path_hash', $qb->createNamedParameter(md5($archivePath))))
+       ->andWhere(
+         $qb->expr()->eq(
+           'user_id',
+           $qb->createNamedParameter($userId)));
 
     return $this->findEntities($qb);
   }
@@ -155,7 +165,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return array
    */
-  public function findByArchiveFile(string $userId, File $archiveFile):array
+  public function findByArchiveFile(string $userId, File $archiveFile): array
   {
     $qb = $this->db->getQueryBuilder();
 
@@ -174,6 +184,33 @@ class ArchiveMountMapper extends QBMapper
   }
 
   /**
+   * Find all mounts for the given archive file id.
+   *
+   * @param string $userId
+   *
+   * @param int|string $archiveFileId
+   *
+   * @return array
+   */
+  public function findByArchiveFileId(string $userId, int|string $archiveFileId): array
+  {
+    $qb = $this->db->getQueryBuilder();
+
+    $qb->select('*')
+      ->from($this->getTableName())
+      ->where(
+        $qb->expr()->eq(
+          'archive_file_id',
+          $qb->createNamedParameter($archiveFileId)))
+      ->andWhere(
+        $qb->expr()->eq(
+          'user_id',
+          $qb->createNamedParameter($userId)));
+
+    return $this->findEntities($qb);
+  }
+
+  /**
    * Find all mounts for the given archive file and user
    *
    * @param string $userId
@@ -182,7 +219,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return array
    */
-  public function findByMountPoint(string $userId, Folder $mountPoint):?ArchiveMount
+  public function findByMountPoint(string $userId, Folder $mountPoint): ?ArchiveMount
   {
     $qb = $this->db->getQueryBuilder();
 
@@ -205,7 +242,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return ArchiveMount
    */
-  private function decodeEntity(ArchiveMount $entity):ArchiveMount
+  private function decodeEntity(ArchiveMount $entity): ArchiveMount
   {
     $archivePassPhrase = $entity->getArchivePassPhrase();
     if (empty($archivePassPhrase)) {
@@ -216,7 +253,6 @@ class ArchiveMountMapper extends QBMapper
     $entity->setArchivePassPhrase($archivePassPhrase);
 
     $entity->setMountFlags(ArchiveMount::MOUNT_FLAGS_MASK & $entity->getMountFlags());
-    $entity->setArchiveFilePathHash(md5($entity->getArchiveFilePath()));
     $entity->setMountPointPathHash(md5($entity->getMountPointPath()));
 
     return $entity;
@@ -227,7 +263,7 @@ class ArchiveMountMapper extends QBMapper
    *
    * @return ArchiveMount
    */
-  private function encodeEntity(ArchiveMount $entity):ArchiveMount
+  private function encodeEntity(ArchiveMount $entity): ArchiveMount
   {
     $archivePassPhrase = $entity->getArchivePassPhrase();
     if (empty($archivePassPhrase)) {
@@ -238,14 +274,13 @@ class ArchiveMountMapper extends QBMapper
     $entity->setArchivePassPhrase($archivePassPhrase);
 
     $entity->setMountFlags(ArchiveMount::MOUNT_FLAGS_MASK & $entity->getMountFlags());
-    $entity->setArchiveFilePathHash(md5($entity->getArchiveFilePath()));
     $entity->setMountPointPathHash(md5($entity->getMountPointPath()));
 
     return $entity;
   }
 
   /** {@inheritdoc} */
-  public function insert(Entity $entity):Entity
+  public function insert(Entity $entity): Entity
   {
     $this->encodeEntity($entity);
     $result = parent::insert($entity);
@@ -254,7 +289,7 @@ class ArchiveMountMapper extends QBMapper
   }
 
   /** {@inheritdoc} */
-  public function update(Entity $entity):Entity
+  public function update(Entity $entity): Entity
   {
     $this->encodeEntity($entity);
     $result = parent::update($entity);
@@ -263,7 +298,7 @@ class ArchiveMountMapper extends QBMapper
   }
 
   /** {@inheritdoc} */
-  protected function mapRowToEntity(array $row):Entity
+  protected function mapRowToEntity(array $row): Entity
   {
     $entity = parent::mapRowToEntity($row);
     return $this->decodeEntity($entity);

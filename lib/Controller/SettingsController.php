@@ -25,7 +25,7 @@ namespace OCA\FilesArchive\Controller;
 use InvalidArgumentException;
 
 use OCP\AppFramework\Controller;
-use OCP\AppFramework\Http\Attribute;
+use OCP\AppFramework\Http\Attribute as CoreAttributes;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\Config\IUserConfig;
@@ -36,6 +36,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 
 use OCA\FilesArchive\Constants;
+use OCA\FilesArchive\Toolkit\Exceptions\EnduserNotificationException;
 
 /**
  * Settings-controller for both, personal and admin, settings.
@@ -60,11 +61,24 @@ class SettingsController extends Controller
    */
   const ADMIN_SETTINGS = [
     self::ARCHIVE_SIZE_LIMIT => [ 'rw' => true, 'default' => self::DEFAULT_ADMIN_ARCHIVE_SIZE_LIMIT ],
+    self::MOUNT_DISABLED => [ 'rw' => true, 'default' => self::MOUNT_DISABLED_DEFAULT ],
+    self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [
+      'rw' => true, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
+    self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [
+      'rw' => true, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
   ];
 
+  public const STRIP_COMMON_PATH_PREFIX_DEFAULT = false;
+
   public const MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT = 'mountStripCommonPathPrefixDefault';
+  public const MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN =
+    self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT . self::ADMIN_SETTING;
 
   public const EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT = 'extractStripCommonPathPrefixDefault';
+  public const EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN =
+    self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT . self::ADMIN_SETTING;
 
   public const MOUNT_POINT_AUTO_RENAME = 'mountPointAutoRename';
 
@@ -87,6 +101,10 @@ class SettingsController extends Controller
   public const MOUNT_BY_LEFT_CLICK = 'mountByLeftClick';
   public const MOUNT_BY_LEFT_CLICK_DEFAULT = false;
 
+  public const MOUNT_DISABLED = 'mountDisabled';
+  public const MOUNT_DISABLED_DEFAULT = false;
+  public const MOUNT_DISABLED_ADMIN = self::MOUNT_DISABLED . self::ADMIN_SETTING;
+
   /**
    * @var array<string, array>
    *
@@ -95,8 +113,18 @@ class SettingsController extends Controller
   const PERSONAL_SETTINGS = [
     self::ARCHIVE_SIZE_LIMIT => [ 'rw' => true, ],
     self::ARCHIVE_SIZE_LIMIT_ADMIN => [ 'rw' => false, 'default' => self::DEFAULT_ADMIN_ARCHIVE_SIZE_LIMIT ],
-    self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [ 'rw' => true, 'default' => false, ],
-    self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [ 'rw' => true, 'default' => false, ],
+    self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [
+      'rw' => true, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
+    self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN => [
+      'rw' => false, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
+    self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT => [
+      'rw' => true, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
+    self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN => [
+      'rw' => false, 'default' => self::STRIP_COMMON_PATH_PREFIX_DEFAULT,
+    ],
     self::MOUNT_POINT_AUTO_RENAME => [ 'rw' => true, 'default' => false, ],
     self::EXTRACT_TARGET_AUTO_RENAME => [ 'rw' => true, 'default' => false, ],
     self::MOUNT_POINT_TEMPLATE => [ 'rw' => true, 'default' => self::FOLDER_TEMPLATE_DEFAULT ],
@@ -104,6 +132,8 @@ class SettingsController extends Controller
     self::MOUNT_BACKGROUND_JOB => [ 'rw' => true, 'default' => self::MOUNT_BACKGROUND_JOB_DEFAULT ],
     self::EXTRACT_BACKGROUND_JOB => [ 'rw' => true, 'default' => self::EXTRACT_BACKGROUND_JOB_DEFAULT ],
     self::MOUNT_BY_LEFT_CLICK => [ 'rw' => true, 'default' => self::MOUNT_BY_LEFT_CLICK_DEFAULT ],
+    self::MOUNT_DISABLED => [ 'rw' => true, 'default' => self::MOUNT_DISABLED_DEFAULT ],
+    self::MOUNT_DISABLED_ADMIN => [ 'rw' => false, 'default' => self::MOUNT_DISABLED_DEFAULT ],
   ];
 
   // phpcs:ignore Squiz.Commenting.FunctionComment.Missing
@@ -130,16 +160,17 @@ class SettingsController extends Controller
    *
    * @return DataResponse
    *
-   * @AuthorizedAdminSetting(settings=OCA\FilesArchive\Settings\Admin)
    * @SuppressWarnings(PHPMD.BooleanArgumentFlag)
    */
-  public function setAdmin(string $setting, mixed $value, bool $force = false):DataResponse
+  #[CoreAttributes\AuthorizedAdminSetting(settings: \OCA\FilesArchive\Settings\Admin::class)]
+  #[CoreAttributes\FrontpageRoute(verb: 'POST', url: '/settings/admin/{setting}')]
+  public function setAdmin(string $setting, mixed $value, bool $force = false): DataResponse
   {
     if (!isset(self::ADMIN_SETTINGS[$setting])) {
-      return self::grumble($this->l->t('Unknown admin setting: "%1$s"', $setting));
+      throw new EnduserNotificationException($this->l->t('Unknown admin setting: "%1$s"', $setting));
     }
     if (!(self::ADMIN_SETTINGS[$setting]['rw'] ?? false)) {
-      return self::grumble($this->l->t('The admin setting "%1$s" is read-only', $setting));
+      throw new EnduserNotificationException($this->l->t('The admin setting "%1$s" is read-only', $setting));
     }
     $oldValue = $this->config->getAppValue(
       $this->appName,
@@ -151,11 +182,27 @@ class SettingsController extends Controller
         try {
           $newValue = $this->parseMemorySize($value);
         } catch (InvalidArgumentException $t) {
-          return self::grumble($t->getMessage());
+          throw new EnduserNotificationException($t->getMessage());
+        }
+        break;
+      case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+      case self::MOUNT_DISABLED:
+      case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+        $newValue = filter_var($value, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]);
+        if ($newValue === null) {
+          throw new EnduserNotificationException(
+            $this->l->t('Value "%1$s" for setting "%2$s" is not convertible to boolean.', [
+              $value, $setting,
+            ]));
+        }
+        if ($newValue === (self::ADMIN_SETTINGS[$setting]['default'] ?? false)) {
+          $newValue = null;
+        } else {
+          $newValue = (int)$newValue;
         }
         break;
       default:
-        return self::grumble($this->l->t('Unknown admin setting: "%1$s"', $setting));
+        throw new EnduserNotificationException($this->l->t('Unknown admin setting: "%1$s"', $setting));
     }
 
     if ($newValue === null) {
@@ -185,16 +232,25 @@ class SettingsController extends Controller
    * @param string $setting
    *
    * @return DataResponse
-   *
-   * @AuthorizedAdminSetting(settings=OCA\FilesArchive\Settings\Admin)
    */
-  public function getAdmin(?string $setting = null):DataResponse
+  #[CoreAttributes\AuthorizedAdminSetting(settings: \OCA\FilesArchive\Settings\Admin::class)]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'GET',
+    url: '/settings/admin/{setting}',
+    requirements: [ 'setting' => '^.+$' ],
+  )]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'GET',
+    url: '/settings/admin',
+    postfix: '.all',
+  )]
+  public function getAdmin(?string $setting = null): DataResponse
   {
     if ($setting === null) {
       $allSettings = self::ADMIN_SETTINGS;
     } else {
       if (!isset(self::ADMIN_SETTINGS[$setting])) {
-        return self::grumble($this->l->t('Unknown admin setting: "%1$s"', $setting));
+        throw new EnduserNotificationException($this->l->t('Unknown admin setting: "%1$s"', $setting));
       }
       $allSettings = [ $setting => self::ADMIN_SETTINGS[$setting] ];
     }
@@ -214,8 +270,14 @@ class SettingsController extends Controller
             $humanValue = '';
           }
           break;
+        case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+        case self::MOUNT_DISABLED:
+        case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+          $value = (bool)$value;
+          $humanValue = $value;
+          break;
         default:
-          return self::grumble($this->l->t('Unknown admin setting: "%1$s"', $oneSetting));
+          throw new EnduserNotificationException($this->l->t('Unknown admin setting: "%1$s"', $oneSetting));
       }
       $results[$oneSetting] = $value;
       $results['human' . ucfirst($oneSetting)] = $humanValue;
@@ -240,14 +302,15 @@ class SettingsController extends Controller
    *
    * @return Response
    */
-  #[Attribute\NoAdminRequired]
-  public function setPersonal(string $setting, mixed $value):Response
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(verb: 'POST', url: '/settings/personal/{setting}')]
+  public function setPersonal(string $setting, mixed $value): Response
   {
     if (!isset(self::PERSONAL_SETTINGS[$setting])) {
-      return self::grumble($this->l->t('Unknown personal setting: "%1$s"', $setting));
+      throw new EnduserNotificationException($this->l->t('Unknown personal setting: "%1$s"', $setting));
     }
     if (!(self::PERSONAL_SETTINGS[$setting]['rw'] ?? false)) {
-      return self::grumble($this->l->t('The personal setting "%1$s" is read-only', $setting));
+      throw new EnduserNotificationException($this->l->t('The personal setting "%1$s" is read-only', $setting));
     }
     $oldValue = $this->config->getUserValue(
       $this->userId,
@@ -259,20 +322,18 @@ class SettingsController extends Controller
         try {
           $newValue = $this->parseMemorySize($value);
         } catch (InvalidArgumentException $t) {
-          return self::grumble($t->getMessage());
+          throw new EnduserNotificationException($t->getMessage());
         }
         break;
       case self::EXTRACT_BACKGROUND_JOB:
-      case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
       case self::EXTRACT_TARGET_AUTO_RENAME:
       case self::MOUNT_BACKGROUND_JOB:
       case self::MOUNT_BY_LEFT_CLICK:
       case self::MOUNT_POINT_AUTO_RENAME:
-      case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
         $oldValue = filter_var($oldValue, FILTER_VALIDATE_BOOLEAN);
         $newValue = filter_var($value, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]);
         if ($newValue === null) {
-          return self::grumble(
+          throw new EnduserNotificationException(
             $this->l->t('Value "%1$s" for setting "%2$s" is not convertible to boolean.', [
               $value, $setting,
             ]));
@@ -280,6 +341,24 @@ class SettingsController extends Controller
         if ($newValue === (self::PERSONAL_SETTINGS[$setting]['default'] ?? false)) {
           $newValue = null;
         }
+        break;
+      case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+      case self::MOUNT_DISABLED:
+      case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+        $oldValue = filter_var(
+          $this->config->getUserValue(
+            $this->userId, $this->appName, $setting, $this->administrativeDefault($setting)),
+          FILTER_VALIDATE_BOOLEAN);
+        $newValue = filter_var($value, FILTER_VALIDATE_BOOLEAN, ['flags' => FILTER_NULL_ON_FAILURE]);
+        if ($newValue === null) {
+          throw new EnduserNotificationException(
+            $this->l->t('Value "%1$s" for setting "%2$s" is not convertible to boolean.', [
+              $value, $setting,
+            ]));
+        }
+        // The personal value overrides the administrative default in both
+        // directions, so it has to be recorded even when it happens to match
+        // the current default.
         break;
       case self::MOUNT_POINT_TEMPLATE:
       case self::EXTRACT_TARGET_TEMPLATE:
@@ -293,14 +372,14 @@ class SettingsController extends Controller
           break;
         }
         if (strpos($newValue, self::ARCHIVE_FILE_NAME_PLACEHOLDER) === false) {
-          return self::grumble($this->l->t(
+          throw new EnduserNotificationException($this->l->t(
             'The target folder template "%1$s" must contain the archive file placeholder "%2$s".', [
               $newValue, self::ARCHIVE_FILE_NAME_PLACEHOLDER,
             ]));
         }
         break;
       default:
-        return self::grumble($this->l->t('Unknown personal setting: "%s".', [ $setting ]));
+        throw new EnduserNotificationException($this->l->t('Unknown personal setting: "%s".', [ $setting ]));
     }
 
     if ($newValue === null) {
@@ -339,14 +418,24 @@ class SettingsController extends Controller
    *
    * @return Response
    */
-  #[Attribute\NoAdminRequired]
-  public function getPersonal(?string $setting = null):Response
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'GET',
+    url: '/settings/personal/{setting}',
+    requirements: [ 'setting' => '^.+$' ],
+  )]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'GET',
+    url: '/settings/personal',
+    postfix: '.all',
+  )]
+  public function getPersonal(?string $setting = null): Response
   {
     if ($setting === null) {
       $allSettings = self::PERSONAL_SETTINGS;
     } else {
       if (!isset(self::PERSONAL_SETTINGS[$setting])) {
-        return self::grumble($this->l->t('Unknown personal setting: "%1$s"', $setting));
+        throw new EnduserNotificationException($this->l->t('Unknown personal setting: "%1$s"', $setting));
       }
       $allSettings = [ $setting => self::PERSONAL_SETTINGS[$setting] ];
     }
@@ -359,6 +448,15 @@ class SettingsController extends Controller
           $adminKey,
           self::ADMIN_SETTINGS[$adminKey]['default'] ?? null,
         );
+      } elseif ($oneSetting === self::MOUNT_DISABLED
+                || $oneSetting === self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT
+                || $oneSetting === self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT) {
+        // the administrative value is only the default for the personal one
+        $value = $this->config->getUserValue(
+          $this->userId,
+          $this->appName,
+          $oneSetting,
+          $this->administrativeDefault($oneSetting));
       } else {
         $value = $this->config->getUserValue(
           $this->userId,
@@ -377,19 +475,25 @@ class SettingsController extends Controller
             $humanValue = '';
           }
           break;
+        case self::EXTRACT_TARGET_TEMPLATE:
+        case self::MOUNT_POINT_TEMPLATE:
+          $humanValue = $value;
+          break;
         case self::EXTRACT_BACKGROUND_JOB:
         case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+        case self::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN:
         case self::EXTRACT_TARGET_AUTO_RENAME:
-        case self::EXTRACT_TARGET_TEMPLATE:
         case self::MOUNT_BACKGROUND_JOB:
         case self::MOUNT_BY_LEFT_CLICK:
+        case self::MOUNT_DISABLED:
+        case self::MOUNT_DISABLED_ADMIN:
         case self::MOUNT_POINT_AUTO_RENAME:
-        case self::MOUNT_POINT_TEMPLATE:
         case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT:
+        case self::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT_ADMIN:
           $value = !!$value;
           break;
         default:
-          return self::grumble($this->l->t('Unknown personal setting: "%1$s"', $oneSetting));
+          throw new EnduserNotificationException($this->l->t('Unknown personal setting: "%1$s"', $oneSetting));
       }
       $results[$oneSetting] = $value;
       $results['human' . ucfirst($oneSetting)] = $humanValue;
@@ -406,13 +510,28 @@ class SettingsController extends Controller
   }
 
   /**
+   * The administrative settings which also exist as personal settings only
+   * define the instance-wide default, the users may override them in both
+   * directions.
+   *
+   * @param string $setting
+   *
+   * @return bool
+   */
+  private function administrativeDefault(string $setting): bool
+  {
+    return (bool)$this->config->getAppValue(
+      $this->appName, $setting, self::ADMIN_SETTINGS[$setting]['default'] ?? false);
+  }
+
+  /**
    * @param string $stringValue
    *
    * @return null|string
    *
    * @throws InvalidArgumentException
    */
-  private function parseMemorySize(string $stringValue):?string
+  private function parseMemorySize(string $stringValue): ?string
   {
     if ($stringValue === '') {
       $stringValue = null;

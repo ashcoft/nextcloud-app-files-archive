@@ -5,15 +5,16 @@
   <name>Archive Manager</name>
   <summary>On-the-fly archive inspector for Nextcloud</summary>
   <description><![CDATA[Inspect, mount and extract archive files (zip, tar, etc.)]]></description>
-  <version>1.3.0-rc2</version>
+  <version>1.3.1</version>
   <licence>agpl</licence>
   <author mail="himself@claus-justus-heine.de" >Claus-Justus Heine</author>
   <namespace>FilesArchive</namespace>
+  <scopednamespace>Scoped</scopednamespace>
   <category>files</category>
   <bugs>https://github.com/rotdrop/nextcloud-app-files-archive.git</bugs>
   <dependencies>
-    <nextcloud min-version="33" max-version="33"/>
-    <php min-version="8.4" max-version="8.5" />
+    <nextcloud min-version="33" max-version="35"/>
+    <php min-version="8.4" max-version="8.6" />
   </dependencies>
   <types>
     <filesystem/><!-- required for catching dav events, otherwise app is not loaded -->
@@ -24,8 +25,13 @@
     </install> -->
     <post-migration>
       <step>OCA\FilesArchive\Migration\RegisterMimeTypes</step>
+      <step>OCA\FilesArchive\Migration\RebuildMountFileCache</step>
     </post-migration>
   </repair-steps>
+  <commands>
+    <command>OCA\FilesArchive\Command\RebuildMountFileCache</command>
+    <command>OCA\FilesArchive\Command\ListMounts</command>
+  </commands>
   <settings>
     <admin>OCA\FilesArchive\Settings\Admin</admin>
     <admin-section>OCA\FilesArchive\Settings\AdminSection</admin-section>

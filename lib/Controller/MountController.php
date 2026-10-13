@@ -22,6 +22,7 @@
 
 namespace OCA\FilesArchive\Controller;
 
+use SensitiveParameter;
 use Throwable;
 
 use OC\Files\Storage\Wrapper\Wrapper as WrapperStorage;
@@ -29,13 +30,16 @@ use OC\Files\Storage\Wrapper\Wrapper as WrapperStorage;
 use Psr\Log\LoggerInterface;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
-use OCP\AppFramework\Http\Attribute;
+use OCP\AppFramework\Http\Attribute as CoreAttributes;
 use OCP\AppFramework\Http\Response;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\JSONResponse;
+use OCP\EventDispatcher\IEventDispatcher;
 use OCP\IPreview;
 use OCP\IRequest;
 use OCP\IConfig;
 use OCP\IL10N;
+use OCP\IUser;
 use OCP\IUserSession;
 use OCP\Files\Mount\IMountPoint;
 use OCP\Files\Mount\IMountManager;
@@ -45,29 +49,33 @@ use OCP\Files\Node;
 use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\Files\NotFoundException as FileNotFoundException;
+use OCP\Files\Events\InvalidateMountCacheEvent;
 
 use OCA\FilesArchive\Toolkit\Exceptions as ToolkitExceptions;
 
-use OCA\FilesArchive\Toolkit\Service\ArchiveService;
-use OCA\FilesArchive\Service\ArchiveServiceFactory;
-use OCA\FilesArchive\Storage\ArchiveStorage;
-use OCA\FilesArchive\Mount\MountProvider;
+use OCA\FilesArchive\Constants;
+use OCA\FilesArchive\Controller\DTO;
 use OCA\FilesArchive\Db\ArchiveMount;
 use OCA\FilesArchive\Db\ArchiveMountMapper;
-use OCA\FilesArchive\Constants;
+use OCA\FilesArchive\Mount\MountProvider;
+use OCA\FilesArchive\Service\ArchiveServiceFactory;
+use OCA\FilesArchive\Storage\ArchiveStorage;
+use OCA\FilesArchive\Toolkit\Exceptions\EnduserNotificationException;
+use OCA\FilesArchive\Toolkit\Service\ArchiveService;
 
 /**
  * Manage user mount requests for archive files.
  */
 class MountController extends Controller
 {
-  use \OCA\FilesArchive\Toolkit\Traits\UtilTrait;
-  use \OCA\FilesArchive\Toolkit\Traits\ResponseTrait;
+  use ArchiveSizeLimitTrait;
+  use TargetPathTrait;
   use \OCA\FilesArchive\Toolkit\Traits\LoggerTrait;
   use \OCA\FilesArchive\Toolkit\Traits\NodeTrait;
+  use \OCA\FilesArchive\Toolkit\Traits\ResponseTrait;
   use \OCA\FilesArchive\Toolkit\Traits\UserRootFolderTrait;
-  use TargetPathTrait;
-  use ArchiveSizeLimitTrait;
+  use \OCA\FilesArchive\Toolkit\Traits\UtilTrait;
+  use \OCA\FilesArchive\Traits\GetArchiveFileTrait;
 
   /** @var string */
   private string $mountPointTemplate;
@@ -78,8 +86,14 @@ class MountController extends Controller
   /** @var bool */
   private bool $stripCommonPathPrefixDefault = false;
 
+  /** @var bool */
+  private bool $mountDisabled = false;
+
   /** @var null|int */
   private ?int $archiveSizeLimit = null;
+
+  /** @var null|IUser */
+  private ?IUser $user = null;
 
   /** @var int */
   private int $archiveBombLimit = Constants::DEFAULT_ADMIN_ARCHIVE_SIZE_LIMIT;
@@ -98,11 +112,13 @@ class MountController extends Controller
     protected IPreview $previewManager,
     IConfig $cloudConfig,
     IUserSession $userSession,
+    private IEventDispatcher $eventDispatcher,
   ) {
     parent::__construct($appName, $request);
 
     $user = $userSession->getUser();
     if (!empty($user)) {
+      $this->user = $user;
       $this->userId = $user->getUID();
 
       $this->archiveBombLimit = $cloudConfig->getAppValue(
@@ -116,8 +132,20 @@ class MountController extends Controller
       $this->autoRenameMountPoint = (bool)$cloudConfig->getUserValue(
         $this->userId, $this->appName, SettingsController::MOUNT_POINT_AUTO_RENAME, false);
 
+      $stripCommonPathPrefixDefault = (bool)$cloudConfig->getAppValue(
+        $this->appName,
+        SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+        SettingsController::STRIP_COMMON_PATH_PREFIX_DEFAULT);
+
       $this->stripCommonPathPrefixDefault = (bool)$cloudConfig->getUserValue(
-        $this->userId, $this->appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT, false);
+        $this->userId, $this->appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+        $stripCommonPathPrefixDefault);
+
+      $mountDisabledDefault = (bool)$cloudConfig->getAppValue(
+        $this->appName, SettingsController::MOUNT_DISABLED, SettingsController::MOUNT_DISABLED_DEFAULT);
+
+      $this->mountDisabled = (bool)$cloudConfig->getUserValue(
+        $this->userId, $this->appName, SettingsController::MOUNT_DISABLED, $mountDisabledDefault);
     }
   }
   // phpcs:enable
@@ -133,13 +161,27 @@ class MountController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'POST',
+    url: '/archive/mount/{archivePath}/{mountPointPath}',
+    defaults: [
+      'mountPointPath' => null,
+    ],
+  )]
   public function mount(
     string $archivePath,
     ?string $mountPointPath = null,
+    #[SensitiveParameter]
     ?string $passPhrase = null,
     ?bool $stripCommonPathPrefix = null,
-  ) {
+  ): DataResponse|JSONResponse {
+    if ($this->mountDisabled) {
+      throw new EnduserNotificationException(
+        $this->l->t('Mounting of archive files is disabled. You can enable it in your personal settings.'),
+      );
+    }
+
     $archivePath = urldecode($archivePath);
     if ($mountPointPath) {
       $mountPointPath = urldecode($mountPointPath);
@@ -147,22 +189,29 @@ class MountController extends Controller
 
     $userFolder = $this->rootFolder->getUserFolder($this->userId);
     if (empty($userFolder)) {
-      return self::grumble($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
-    }
-
-    $mounts = $this->mountMapper->findByArchivePath($this->userId, $archivePath);
-    if (!empty($mounts)) {
-      $mount = array_shift($mounts);
-      return self::grumble($this->l->t('"%1$s" is already mounted on "%2$s".', [
-        $archivePath, $mount->getMountPointPath(),
-      ]));
+      throw new EnduserNotificationException(
+        $this->l->t('The user folder for user "%s" could not be opened.', $this->userId),
+      );
     }
 
     try {
       /** @var File $archiveFile */
       $archiveFile = $userFolder->get($archivePath);
     } catch (FileNotFoundException $e) {
-      return self::grumble($this->l->t('Unable to open the archive file "%s".', $archivePath));
+      throw new EnduserNotificationException(
+        $this->l->t('Unable to open the archive file "%s".', $archivePath),
+      );
+    }
+    $archiveFileId = $archiveFile->getId();
+
+    $mounts = $this->mountMapper->findByArchiveFileId($this->userId, $archiveFileId);
+    if (!empty($mounts)) {
+      $mount = array_shift($mounts);
+      throw new EnduserNotificationException(
+        $this->l->t('"%1$s" is already mounted on "%2$s".', [
+          $archivePath, $mount->getMountPointPath(),
+        ]),
+      );
     }
 
     $mountFlags = 0;
@@ -178,13 +227,17 @@ class MountController extends Controller
     } catch (ToolkitExceptions\ArchiveTooLargeException $e) {
       $uncompressedSize = $e->getActualSize();
       if ($uncompressedSize > $this->archiveBombLimit) {
-        return self::grumble($this->l->t('The archive file "%1$s" appears to be a zip-bomb: uncompressed size %2$s > admin limit %3$s.', [
-          $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveBombLimit)
-        ]));
+        throw new EnduserNotificationException(
+          $this->l->t('The archive file "%1$s" appears to be a zip-bomb: uncompressed size %2$s > admin limit %3$s.', [
+            $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveBombLimit)
+          ]),
+        );
       } else {
-        return self::grumble($this->l->t('The archive file "%1$s" is too large: uncompressed size %2$s > user limit %3$s.', [
-          $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveSizeLimit)
-        ]));
+        throw new EnduserNotificationException(
+          $this->l->t('The archive file "%1$s" is too large: uncompressed size %2$s > user limit %3$s.', [
+            $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveSizeLimit)
+          ]),
+        );
       }
     }
 
@@ -200,7 +253,7 @@ class MountController extends Controller
       $parentFolder = $userFolder->get($mountPointDirName);
     } catch (Throwable $t) {
       $this->logException($t);
-      return self::grumble($this->l->t(
+      throw new EnduserNotificationException($this->l->t(
         'Unable to open parent folder "%1$s" of mount point "%2$s": %3$s.', [
           $mountPointDirName, $mountPointBaseName, $t->getMessage()
         ]));
@@ -209,7 +262,7 @@ class MountController extends Controller
     $nonExistingMountTarget = $parentFolder->getNonExistingName($mountPointBaseName);
     if ($nonExistingMountTarget != $mountPointBaseName) {
       if (!$this->autoRenameMountPoint) {
-        return self::grumble($this->l->t('The mount point "%s" already exists and auto-rename is not enabled.', $mountPointPath));
+        throw new EnduserNotificationException($this->l->t('The mount point "%s" already exists and auto-rename is not enabled.', $mountPointPath));
       }
       $mountPointPath = $mountPointDirName . Constants::PATH_SEPARATOR . $nonExistingMountTarget;
     }
@@ -219,7 +272,6 @@ class MountController extends Controller
     $mountEntity->setUserId($this->userId);
     $mountEntity->setMountPointPath($mountPointPath);
     $mountEntity->setArchiveFileId($archiveFile->getId());
-    $mountEntity->setArchiveFilePath($archivePath);
     $mountEntity->setArchivePassPhrase($passPhrase);
     $mountEntity->setMountFlags($mountFlags);
 
@@ -237,6 +289,7 @@ class MountController extends Controller
       // only now we have the root-id
       $mountEntity->setMountPointFileId($mountPoint->getStorageRootId());
       $this->mountMapper->insert($mountEntity);
+      $this->invalidateMountCache();
     } catch (Throwable $t) {
       $this->logException($t);
       try {
@@ -244,14 +297,15 @@ class MountController extends Controller
       } catch (Throwable $t) {
         // ignore
       }
-      return self::grumble($this->l->t(
+      throw new EnduserNotificationException($this->l->t(
         'Unable to update the file cache for the mount point "%1s": %2$s.', [
           $mountPointPath, $t->getMessage()
         ]));
     }
 
+    $result = $this->formatMountEntity($mountEntity, throwOnError: true);
 
-    return self::dataResponse($this->formatMountEntity($mountEntity));
+    return new DTO\ArchiveMountResponse(mount: $result->mount, mountPoint: $result->mountPoint)->response();
   }
 
   /**
@@ -259,19 +313,28 @@ class MountController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
-  public function unmount(string $archivePath)
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(verb: 'POST', url: '/archive/unmount/{archivePath}')]
+  public function unmount(string $archivePath): DataResponse|JSONResponse
   {
     $archivePath = urldecode($archivePath);
 
-    $mounts = $this->mountMapper->findByArchivePath($this->userId, $archivePath);
-    if (empty($mounts)) {
-      return self::grumble($this->l->t('"%s" is not mounted.', $archivePath));
-    }
-
     $userFolder = $this->getUserFolder();
     if (empty($userFolder)) {
-      return self::grumble($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
+      throw new EnduserNotificationException($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
+    }
+
+    try {
+      /** @var File $archiveFile */
+      $archiveFile = $userFolder->get($archivePath);
+    } catch (FileNotFoundException $e) {
+      throw new EnduserNotificationException($this->l->t('Unable to open the archive file "%s".', $archivePath));
+    }
+    $archiveFileId = $archiveFile->getId();
+
+    $mounts = $this->mountMapper->findByArchiveFileId($this->userId, $archiveFileId);
+    if (empty($mounts)) {
+      throw new EnduserNotificationException($this->l->t('"%s" is not mounted.', $archivePath));
     }
 
     $unMountCount = 0;
@@ -299,13 +362,28 @@ class MountController extends Controller
 
       ++$unMountCount;
     }
+    if ($unMountCount > 0) {
+      $this->invalidateMountCache();
+    }
 
-    return self::dataResponse([
-      'errorMessages' => $errorMessages,
-      'messages' => $messages,
-      'count' => $unMountCount,
-      'mounts' => $removedMountPoints,
-    ], count($errorMessages) > 0 ? Http::STATUS_BAD_REQUEST : Http::STATUS_OK);
+    return new DTO\ArchiveUnmountResponse(
+      errorMessages: $errorMessages,
+      messages: $messages,
+      count: $unMountCount,
+      mounts: $removedMountPoints,
+    )->response(count($errorMessages) > 0 ? Http::STATUS_BAD_REQUEST : Http::STATUS_OK);
+  }
+
+  /**
+   * Since NC 33 the file-system setup of later requests relies on the cached
+   * mounts of the user, so a mount added or removed here would stay
+   * invisible (resp. visible) until the next full setup.
+   *
+   * @return void
+   */
+  private function invalidateMountCache(): void
+  {
+    $this->eventDispatcher->dispatchTyped(new InvalidateMountCacheEvent($this->user));
   }
 
   /**
@@ -315,21 +393,34 @@ class MountController extends Controller
    *
    * @param ArchiveMount $mount
    *
-   * @return array
+   * @param bool $throwOnError
+   *
+   * @return DTO\ArchiveMountResponse
    */
-  private function formatMountEntity(ArchiveMount $mount):array
+  private function formatMountEntity(ArchiveMount $mount, bool $throwOnError = false): DTO\MountPoint
   {
-    $data = $mount->jsonSerialize();
-    $userFolder = $this->getUserFolder();
     try {
+      $userFolder = $this->getUserFolder();
       /** @var Folder $mountNode */
       $mountNode = $userFolder->get($mount->getMountPointPath());
-      $data['mountPoint'] = $this->formatNode($mountNode);
+      $mountPoint = $this->formatNode($mountNode);
     } catch (FileNotFoundException $notFound) {
+      if ($throwOnError) {
+        throw new EnduserNotificationException(
+          $this->l->t('Unable to access the archive mount point at "%1$s".', $mount->getMountPointPath()),
+          0,
+          $notFound,
+          context: $mount->jsonSerialize(),
+        );
+      }
       $this->logException($notFound);
-      $data['mountPoint'] = false;
+      $mountPoint = null;
     }
-    return $data;
+
+    return new DTO\MountPoint(
+      mount: $mount,
+      mountPoint: $mountPoint,
+    );
   }
 
   /**
@@ -337,16 +428,37 @@ class MountController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
-  public function mountStatus(string $archivePath):DataResponse
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(verb: 'GET', url: '/archive/mount/{archivePath}')]
+  public function mountStatus(string $archivePath): DataResponse|JSONResponse
   {
     $archivePath = urldecode($archivePath);
-    $mounts = $this->mountMapper->findByArchivePath($this->userId, $archivePath);
-    return self::dataResponse([
-      'messages' => [],
-      'mounted' => !empty($mounts),
-      'mounts' => array_map(fn(ArchiveMount $mount) => $this->formatMountEntity($mount), empty($mounts) ? [] : $mounts),
-    ]);
+
+    $userFolder = $this->getUserFolder();
+    if (empty($userFolder)) {
+      throw new EnduserNotificationException($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
+    }
+
+    try {
+      /** @var File $archiveFile */
+      $archiveFile = $userFolder->get($archivePath);
+    } catch (FileNotFoundException $e) {
+      throw new EnduserNotificationException($this->l->t('Unable to open the archive file "%s".', $archivePath));
+    }
+    $archiveFileId = $archiveFile->getId();
+
+    $mounts = $this->mountMapper->findByArchiveFileId($this->userId, $archiveFileId);
+
+    $mountsWithMountPoint = array_filter(
+      array_map(fn(ArchiveMount $mount) => $this->formatMountEntity($mount), empty($mounts) ? [] : $mounts),
+      fn(DTO\MountPoint $mountPoint) => $mountPoint->mountPoint !== null,
+    );
+
+    return new DTO\MountStatusResponse(
+      messages: [],
+      mounted: !empty($mountsWithMountPoint),
+      mounts: $mountsWithMountPoint,
+    )->response(count($mountsWithMountPoint) === count($mounts) ? HTTP::STATUS_OK : HTTP::STATUS_INTERNAL_SERVER_ERROR);
   }
 
   /**
@@ -366,21 +478,36 @@ class MountController extends Controller
    *
    * @return DataResponse
    */
-  #[Attribute\NoAdminRequired]
-  public function patch(string $archivePath, array $changeSet = [])
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(verb: 'PATCH', url: '/archive/mount/{archivePath}')]
+  public function patch(string $archivePath, #[SensitiveParameter] array $changeSet = []): DataResponse|JSONResponse
   {
     if (empty($changeSet)) {
-      return self::dataResponse([
-        'changeSet' => [],
-      ]);
+      return new DTO\MountPatchResponse(
+        changeSet: [],
+      )->response();
     }
     if (count($changeSet) != 1 || !array_key_exists('archivePassPhrase', $changeSet)) {
-      return self::grumble($this->l->t('Only the passphrase may be changed for an existing mount.'));
+      throw new EnduserNotificationException($this->l->t('Only the passphrase may be changed for an existing mount.'));
     }
     $newPassPhrase = $changeSet['archivePassPhrase'];
 
     $archivePath = urldecode($archivePath);
-    $mounts = $this->mountMapper->findByArchivePath($this->userId, $archivePath);
+
+    $userFolder = $this->rootFolder->getUserFolder($this->userId);
+    if (empty($userFolder)) {
+      throw new EnduserNotificationException($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
+    }
+
+    try {
+      /** @var File $archiveFile */
+      $archiveFile = $userFolder->get($archivePath);
+    } catch (FileNotFoundException $e) {
+      throw new EnduserNotificationException($this->l->t('Unable to open the archive file "%s".', $archivePath));
+    }
+    $archiveFileId = $archiveFile->getId();
+
+    $mounts = $this->mountMapper->findByArchiveFileId($this->userId, $archiveFileId);
 
     $changeSet = [];
 
@@ -393,8 +520,8 @@ class MountController extends Controller
       $this->mountMapper->update($mount);
     }
 
-    return self::dataResponse([
-      'changeSet' => $changeSet,
-    ]);
+    return new DTO\MountPatchResponse(
+      changeSet: $changeSet,
+    )->response();
   }
 }

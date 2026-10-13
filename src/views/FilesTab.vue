@@ -30,14 +30,15 @@
         <NcActions>
           <NcActionButton v-model="showArchiveInfo"
                           :icon="'icon-triangle-' + (showArchiveInfo ? 'n' : 's')"
+                          @click.stop=""
           />
         </NcActions>
       </li>
       <li v-show="showArchiveInfo" class="files-tab-entry">
         <div v-if="loading" class="icon-loading-small" />
         <ul v-show="!loading" class="archive-info">
-          <NcListItem v-if="isLt(0, archiveStatus)"
-                      :class="{ 'archive-error': isLt(0, archiveStatus) }"
+          <NcListItem v-if="archiveError"
+                      :class="{ 'archive-error': archiveError }"
                       :name="t(appName, 'archive status')"
                       :bold="true"
                       :details="archiveStatusText"
@@ -84,17 +85,24 @@
           />
           <NcListItem :name="t(appName, 'common prefix')"
                       :bold="true"
-                      :details="commonPathPrefix"
                       compact
-          />
+          >
+            <template #subname>
+              <div v-tooltip="commonPathPrefix">
+                {{ commonPathPrefix }}
+              </div>
+            </template>
+          </NcListItem>
           <NcListItem v-if="archiveInfo?.comment"
                       class="archive-comment"
                       :name="t(appName, 'creator\'s comment')"
                       :bold="true"
                       compact
           >
-            <template #subtitle>
-              {{ archiveInfo?.comment }}
+            <template #subname>
+              <div v-tooltip="archiveInfo?.comment">
+                {{ archiveInfo?.comment }}
+              </div>
             </template>
           </NcListItem>
         </ul>
@@ -108,47 +116,38 @@
           </h5>
         </div>
         <NcActions :forceMenu="true">
-          <NcActionInput v-if="showArchivePassPhrase"
-                         ref="archivePassPhraseComponent"
-                         v-model="archivePassPhrase"
-                         type="text"
-                         icon="icon-password"
-                         @submit="setPassPhrase"
-          >
-            {{ t(appName, 'archive passphrase') }}
-          </NcActionInput>
-          <NcActionInput v-else
-                         ref="archivePassPhraseComponent"
-                         v-model="archivePassPhrase"
+          <NcActionInput v-model="archivePassPhrase"
                          type="password"
                          icon="icon-password"
                          @submit="setPassPhrase"
           >
             {{ t(appName, 'archive passphrase') }}
           </NcActionInput>
-          <NcActionCheckbox @change="togglePassPhraseVisibility">
-            {{ t(appName, 'Show Passphrase') }}
-          </NcActionCheckbox>
         </NcActions>
       </li>
-      <li class="files-tab-entry flex flex-center clickable"
+      <li v-if="!archiveMountDisabled || archiveMounted"
+          class="files-tab-entry flex flex-center clickable"
           @click="showArchiveMounts = !showArchiveMounts"
       >
         <div class="files-tab-entry__avatar icon-external-white" />
         <div class="files-tab-entry__desc">
           <h5>
-            <span class="main-title">{{ t(appName, 'Mount Points') }}</span>
-            <span v-if="archiveMounted" class="title-annotation">({{ '' + archiveMounts.length }})</span>
+            <span class="main-title">{{ n(appName, 'Mount Point', 'Mount Points', archiveMounts.length) }}</span>
+            <span v-if="archiveMounted" class="title-annotation">({{ `${archiveMounts.length}` }})</span>
             <span v-else class="title-annotation">({{ t(appName, 'not mounted') }})</span>
           </h5>
         </div>
         <NcActions>
           <NcActionButton v-model="showArchiveMounts"
                           :icon="'icon-triangle-' + (showArchiveMounts ? 'n' : 's')"
+                          @click.stop=""
           />
         </NcActions>
       </li>
-      <li v-show="showArchiveMounts" class="directory-chooser files-tab-entry">
+      <li v-if="!archiveMountDisabled || archiveMounted"
+          v-show="showArchiveMounts"
+          class="directory-chooser files-tab-entry"
+      >
         <div v-if="loading" class="icon-loading-small" />
         <ul v-else-if="archiveMounted" class="archive-mounts">
           <NcListItem v-for="mountPoint in archiveMounts"
@@ -156,7 +155,7 @@
                       :forceDisplayActions="true"
                       :bold="false"
           >
-            <template #title>
+            <template #name>
               <a v-tooltip="mountPoint.mountPointPath"
                  class="external icon-folder icon"
                  :target="openMountTarget"
@@ -174,12 +173,12 @@
                 </template>
               </NcActionButton>
             </template>
-            <template v-if="mountPoint.mountFlags & 1" #extra>
+            <template v-if="mountPoint.mountFlags & 1" #subname>
               <div>{{ t(appName, 'Common prefix {prefix} is stripped.', { prefix: commonPathPrefix }) }}</div>
             </template>
           </NcListItem>
         </ul>
-        <div v-else>
+        <div v-else-if="!archiveMountDisabled">
           <FilePrefixPicker v-model="archiveMountFileInfo"
                             :hint="t(appName, 'Not mounted, create a new mount point:')"
                             :placeholder="t(appName, 'base name')"
@@ -194,14 +193,10 @@
             <NcActions ref="mountOptionsComponent"
                        :forceMenu="true"
             >
-              <NcActionCheckbox v-model="archiveMountStripCommonPathPrefix"
-                                @change="archiveMountStripCommonPathPrefix = !archiveMountStripCommonPathPrefix"
-              >
+              <NcActionCheckbox v-model="archiveMountStripCommonPathPrefix">
                 {{ t(appName, 'strip common path prefix') }}
               </NcActionCheckbox>
-              <NcActionCheckbox v-model="archiveMountBackgroundJob"
-                                @change="archiveMountBackgroundJob = !archiveMountBackgroundJob"
-              >
+              <NcActionCheckbox v-model="archiveMountBackgroundJob">
                 {{ t(appName, 'schedule as background job') }}
               </NcActionCheckbox>
             </NcActions>
@@ -218,6 +213,7 @@
         <NcActions>
           <NcActionButton v-model="showArchiveExtraction"
                           :icon="'icon-triangle-' + (showArchiveExtraction ? 'n' : 's')"
+                          @click.stop=""
           />
         </NcActions>
       </li>
@@ -238,14 +234,10 @@
             <NcActions ref="extractionOptionsComponent"
                        :forceMenu="true"
             >
-              <NcActionCheckbox v-model="archiveExtractStripCommonPathPrefix"
-                                @change="archiveExtractStripCommonPathPrefix = !archiveExtractStripCommonPathPrefix"
-              >
+              <NcActionCheckbox v-model="archiveExtractStripCommonPathPrefix">
                 {{ t(appName, 'strip common path prefix') }}
               </NcActionCheckbox>
-              <NcActionCheckbox v-model="archiveExtractBackgroundJob"
-                                @change="archiveExtractBackgroundJob = !archiveExtractBackgroundJob"
-              >
+              <NcActionCheckbox v-model="archiveExtractBackgroundJob">
                 {{ t(appName, 'schedule as background job') }}
               </NcActionCheckbox>
             </NcActions>
@@ -268,6 +260,7 @@
         <NcActions>
           <NcActionButton v-model="showPendingJobs"
                           :icon="'icon-triangle-' + (showPendingJobs ? 'n' : 's')"
+                          @click.stop=""
           />
         </NcActions>
       </li>
@@ -279,11 +272,13 @@
                       :forceDisplayActions="true"
                       :bold="false"
           >
-            <template #title>
-              <div>{{ job.destinationPath }}</div>
+            <template #name>
+              <div v-tooltip="job.destinationPath">
+                {{ job.destinationPath }}
+              </div>
             </template>
             <template #actions>
-              <NcActionButton @click="cancelPendingOperation(job.target)">
+              <NcActionButton @click="cancelPendingOperation(job)">
                 <template #icon>
                   <CancelIcon v-tooltip="t(appName, 'Cancel Job')"
                               :size="20"
@@ -291,7 +286,7 @@
                 </template>
               </NcActionButton>
             </template>
-            <template v-if="job.stripCommonPathPrefix" #extra>
+            <template v-if="job.stripCommonPathPrefix" #subname>
               <div>{{ t(appName, 'Job type: {type}', {type: job.target === 'mount' ? t(appName, 'mount') : t(appName, 'extract')}) }}</div>
               <div>{{ t(appName, 'Common prefix {prefix} will be stripped.', { prefix: commonPathPrefix }) }}</div>
             </template>
@@ -310,23 +305,34 @@ import type { NextcloudEvents } from '@nextcloud/event-bus'
 import type {
   IFolder,
   INode,
-  IView,
+  // IView,
 } from '@nextcloud/files'
+import type { ArchiveJobArgument as ArchiveJob } from '../../build/ts-types/php-modules/BackgroundJob.ts'
 import type {
-  ArchiveMount,
-  ArchiveMountEntity,
-  GetArchiveMountResponse,
-} from '../model/archive-mount.d.ts'
+  ArchiveExtractResponse,
+  ArchiveInfo,
+  ArchiveInfoResponse,
+  ArchiveMountResponse,
+  BackgroundJobCanceledResponse,
+  BackgroundJobScheduledResponse,
+  MountPatchResponse,
+  MountStatusResponse,
+} from '../../build/ts-types/php-modules/Controller/DTO.ts'
+import type {
+  ArchiveMount as ArchiveMountEntity,
+} from '../../build/ts-types/php-modules/Db.ts'
 import type { FileInfoDTO } from '../toolkit/util/file-node-helper.ts'
 import type { InitialState } from '../types/initial-state.d.ts'
-import type { DestinationParameter } from '../types/notification.d.ts'
+import type { DestinationParameter, SourceParameter } from '../types/notification.d.ts'
 
 import { getCurrentUser } from '@nextcloud/auth'
 import axios from '@nextcloud/axios'
-import { showError, showInfo, TOAST_PERMANENT_TIMEOUT } from '@nextcloud/dialogs'
 import { emit, subscribe, unsubscribe } from '@nextcloud/event-bus'
 import { formatFileSize } from '@nextcloud/files'
-import { translate as t } from '@nextcloud/l10n'
+import {
+  translatePlural as n,
+  translate as t,
+} from '@nextcloud/l10n'
 import { generateRemoteUrl, generateUrl } from '@nextcloud/router'
 import {
   NcActionButton,
@@ -335,13 +341,14 @@ import {
   NcActions,
   NcListItem,
 } from '@nextcloud/vue'
+import vTooltip from '@rotdrop/nextcloud-vue-components/lib/directives/Tooltip'
 import { md5 } from 'js-md5'
 import {
   computed,
-  nextTick,
   onBeforeMount,
   onUnmounted,
   ref,
+  useTemplateRef,
   watch,
 } from 'vue'
 import FilePrefixPicker from '@rotdrop/nextcloud-vue-components/lib/components/FilePrefixPicker.vue'
@@ -354,43 +361,32 @@ import { setFileNodeBusy } from '../toolkit/util/file-node-busy-indicator.ts'
 import { fileInfoToNode } from '../toolkit/util/file-node-helper.ts'
 import generateAppUrl from '../toolkit/util/generate-url.ts'
 import getInitialState from '../toolkit/util/initial-state.ts'
+import { showError, showInfo, TOAST_PERMANENT_TIMEOUT } from '../toolkit/util/toasts.ts'
 
-interface ArchiveInfo {
-  commonPathPrefix: string
-  compressedSize: number
-  defaultMountPoint: string
-  defaultTargetBaseName: string
-  numberOfFiles: number
-  originalSize: number
-  size: number
-  format: string
-  mimeType: string
-  backendDriver: string
-  comment?: string
-}
-
-interface ArchiveJob {
-  target: 'mount'|'extract'
-  userId: string
-  sourceId: number
-  sourcePath: string
-  destinationPath: string
-  archivePassphrase?: string
-  stripCommonPathPrefix: boolean
-  needsAuthentication: boolean
-  authToken: string
+type ArchiveMount = ArchiveMountEntity & {
+  mountPoint: IFolder
 }
 
 const props = withDefaults(defineProps<{
   node: INode
-  folder?: IFolder
-  view?: IView
+  // folder?: IFolder
+  // view?: IView
 }>(), {
-  folder: undefined,
-  view: undefined,
+  // folder: undefined,
+  // view: undefined,
 })
 
-logger.info('PROPS', { props })
+logger.info(
+  'PROPS',
+  {
+    props,
+    node: {
+      path: props.node.path,
+      basename: props.node.basename,
+      dirname: props.node.dirname,
+    },
+  },
+)
 
 const setBusyState = (state: boolean) => {
   setFileNodeBusy(props.node, state)
@@ -398,13 +394,12 @@ const setBusyState = (state: boolean) => {
 
 setBusyState(false) // needs to be done once while in setup mode
 
-const archivePassPhraseComponent = ref<null|typeof NcActionInput>(null)
-const mountOptionsComponent = ref<null|typeof NcActions>(null)
-const extractionOptionsComponent = ref<null|typeof NcActions>(null)
+const mountOptionsComponent = useTemplateRef<typeof NcActions>('mountOptionsComponent')
+const extractionOptionsComponent = useTemplateRef<typeof NcActions>('extractionOptionsComponent')
 
 const loading = ref(0)
 
-const fileName = computed(() => props.node ? props.node.path + '/' + props.node.basename : null)
+const fileName = computed(() => props.node ? props.node.path : null)
 const archiveFileId = computed(() => props.node?.id)
 
 const ArchiveStatusOk = 0
@@ -413,6 +408,7 @@ const ArchiveStatusBomb = 2
 
 const archiveInfo = ref<undefined|ArchiveInfo>(undefined)
 const archiveStatus = ref<undefined|number>(undefined)
+const archiveError = computed(() => 0 < archiveStatus.value!)
 
 const archiveMounts = ref<ArchiveMount[]>([])
 
@@ -425,10 +421,10 @@ const archiveMountStripCommonPathPrefix = ref(!!initialState?.mountStripCommonPa
 const archiveExtractStripCommonPathPrefix = ref(!!initialState?.extractStripCommonPathPrefixDefault)
 const archiveMountBackgroundJob = ref(!!initialState?.mountBackgroundJob)
 const archiveExtractBackgroundJob = ref(!!initialState?.extractBackgroundJob)
+const archiveMountDisabled = !!initialState?.mountDisabled
 const archivePassPhrase = ref<undefined|string>(undefined)
 
 const showArchiveInfo = ref(true)
-const showArchivePassPhrase = ref(false)
 const showArchiveMounts = ref(false)
 const showArchiveExtraction = ref(false)
 const showPendingJobs = ref(false)
@@ -498,9 +494,6 @@ const archiveStatusText = computed(() => {
   return t(appName, 'unknown')
 })
 
-// const archiveFileDirName = computed(() => props.node?.path)
-// const archiveFileBaseName = computed(() => props.node?.name)
-// const archiveFilePathName = computed(() => props.node?.path + '/' + props.node?.name)
 const archiveMounted = computed(() => archiveMounts.value.length > 0)
 // const archiveInfoText = computed(() => JSON.stringify(archiveInfo.value, null, 2))
 const humanArchiveOriginalSize = computed(
@@ -542,7 +535,7 @@ const commonPathPrefix = computed(
 // )
 
 // We ____DO____  want to compare numerically here.
-const isLt = (a: null|undefined|number, b: null|undefined|number) => a! < b!
+// const isLt = (a: null|undefined|number, b: null|undefined|number) => a! < b!
 
 const openMountOptionsMenu = () => {
   mountOptionsComponent.value?.openMenu()
@@ -570,19 +563,6 @@ const getData = async () => {
   getPendingJobs(fileName.value, true)
 }
 
-watch(
-  props.node,
-  async () => {
-    logger.debug('Node has changed', {
-      node: { ...props.node },
-      folder: { ...props.folder },
-      view: { ...props.view },
-    })
-    await update()
-  },
-  { immediate: true },
-)
-
 /**
  * Update current fileInfo and fetch new data.
  */
@@ -592,20 +572,12 @@ async function update() {
    *   logger.info('FILE LIST UPDATED, ARGS', arguments)
    * }) */
   archiveMountBaseName.value = props.node.basename.split('.')[0]
-  archiveMountDirName.value = props.node.path
+  archiveMountDirName.value = props.node.dirname
 
   archiveExtractBaseName.value = archiveMountBaseName.value
   archiveExtractDirName.value = archiveMountDirName.value
 
   getData()
-}
-
-defineExpose({ update })
-
-interface ArchiveInfoResponse {
-  messages: string[]
-  archiveStatus: number
-  archiveInfo: ArchiveInfo
 }
 
 /**
@@ -630,7 +602,7 @@ async function getArchiveInfo(fileName: string) {
       }
     }
   } catch (e) {
-    logger.error('ERROR', e)
+    logger.trace('ERROR', e)
     if (isAxiosErrorResponse(e) && e.response.data) {
       const responseData = e.response.data as ArchiveInfoResponse
       archiveInfo.value = responseData.archiveInfo
@@ -671,28 +643,22 @@ async function refreshArchiveMounts(filename: string, noEmit?: boolean) {
   // quadratic, but we are talking here about the common case that
   // there is only a single mount -- or by accident another
   // one. So what.
-  const newMounts = archiveMounts.value.filter((mount) => oldMounts.findIndex((oldMount) => mount.mountPoint.fileid === oldMount.mountPoint.fileid) === -1)
-  const deletedMounts = oldMounts.filter((oldMount) => archiveMounts.value.findIndex((mount) => mount.mountPoint.fileid === oldMount.mountPoint.fileid) === -1)
+  const newMounts = archiveMounts.value.filter((mount) => oldMounts.findIndex((oldMount) => mount.mountPoint.id === oldMount.mountPoint.id) === -1)
+  const deletedMounts = oldMounts.filter((oldMount) => archiveMounts.value.findIndex((mount) => mount.mountPoint.id === oldMount.mountPoint.id) === -1)
   for (const mount of deletedMounts) {
-    const node = fileInfoToNode(mount.mountPoint)
-    node.attributes['is-mount-root'] = true
-
-    emit('files:node:deleted', node)
+    emit('files:node:deleted', mount.mountPoint)
   }
   for (const mount of newMounts) {
-    const node = fileInfoToNode(mount.mountPoint)
-    node.attributes['is-mount-root'] = true
-
-    emit('files:node:created', node)
+    emit('files:node:created', mount.mountPoint)
   }
 }
 
-const getJobIdFromOperation = (operation: string, archivePath: string, mountPath: string) => {
-  return md5(operation + archivePath + mountPath)
+const getJobIdFromOperation = (operation: 'mount'|'extract', archiveFileId: string, destinationPath: string) => {
+  return md5(`${operation}${archiveFileId}${destinationPath}`)
 }
 
 const getJobIdFromJob = (job: ArchiveJob) => {
-  return getJobIdFromOperation(job.target, job.sourcePath, job.destinationPath)
+  return getJobIdFromOperation(job.target, job.sourceId, job.destinationPath)
 }
 
 /**
@@ -737,32 +703,28 @@ async function getPendingJobs(fileName: string, silent?: boolean) {
   }
 }
 
-interface CancelJobResponse {
-  removed?: ArchiveJob[]
-  messages?: string[]
-}
-
-const cancelPendingOperation = async (operation: 'extract'|'mount') => {
+const cancelPendingOperation = async (job: ArchiveJob) => {
   const archivePath = encodeURIComponent(fileName.value!)
-  const mountPath = encodeURIComponent(archiveMountPathName.value)
+  const destinationPath = encodeURIComponent(job.destinationPath)
   const url = generateAppUrl(
-    'archive/schedule/{operation}/{archivePath}/{mountPath}',
+    'archive/schedule/{operation}/{archivePath}/{destinationPath}',
     {
-      operation,
+      operation: job.target,
       archivePath,
-      mountPath,
+      destinationPath,
     },
   )
-  let responseData: CancelJobResponse = {}
+  let responseData: BackgroundJobCanceledResponse|undefined
   try {
-    const response = await axios.delete<CancelJobResponse>(url, {})
+    const response = await axios.delete<BackgroundJobCanceledResponse>(url, {})
     responseData = response.data
   } catch (e) {
     logger.error('ERROR', e)
+    responseData = undefined
     if (isAxiosErrorResponse(e)) {
       const messages: string[] = []
       if (e.response.data) {
-        responseData = e.response.data as CancelJobResponse
+        responseData = e.response.data as BackgroundJobCanceledResponse
         if (Array.isArray(responseData.messages)) {
           messages.splice(messages.length, 0, ...responseData.messages)
         }
@@ -780,7 +742,7 @@ const cancelPendingOperation = async (operation: 'extract'|'mount') => {
       }
     }
   }
-  if (responseData.removed) {
+  if (responseData && responseData.removed) {
     for (const job of responseData.removed) {
       const jobId = getJobIdFromJob(job)
       if (pendingJobs.value[jobId]) {
@@ -790,14 +752,26 @@ const cancelPendingOperation = async (operation: 'extract'|'mount') => {
   }
 }
 
+const mountPointInfoToMountPoint = (mount: ArchiveMountEntity|ArchiveMountResponse, mountPointInfo?: FileInfoDTO<'folder'>) => {
+  const mountPoint = fileInfoToNode(mountPointInfo ?? (mount as ArchiveMountResponse).mountPoint)
+  mountPoint.attributes['is-mount-root'] = true
+  return {
+    ...mount,
+    mountPoint,
+  } as ArchiveMount
+}
+
+const mountPointInfosToNodes = (mounts: ArchiveMountResponse[]) =>
+  mounts.map((mount) => mountPointInfoToMountPoint(mount, mount.mountPoint))
+
 /**
  * @param fileName TBD.
  *
  * @param silent TBD.
  */
 async function getArchiveMounts(fileName: string, silent?: boolean) {
-  const result: Omit<GetArchiveMountResponse, 'messages'> = {
-    mounts: [],
+  const result = {
+    mounts: [] as ArchiveMount[],
     mounted: false,
   }
   if (silent !== true) {
@@ -806,9 +780,9 @@ async function getArchiveMounts(fileName: string, silent?: boolean) {
   fileName = encodeURIComponent(fileName)
   const url = generateAppUrl('archive/mount/{fileName}', { fileName })
   try {
-    const response = await axios.get<GetArchiveMountResponse>(url)
+    const response = await axios.get<MountStatusResponse>(url)
     const responseData = response.data
-    result.mounts = responseData.mounts
+    result.mounts = mountPointInfosToNodes(responseData.mounts)
     result.mounted = responseData.mounted
     if (responseData.messages) {
       for (const message of responseData.messages) {
@@ -818,8 +792,8 @@ async function getArchiveMounts(fileName: string, silent?: boolean) {
   } catch (e) {
     logger.error('ERROR', e)
     if (isAxiosErrorResponse(e) && e.response.data) {
-      const responseData = e.response.data as GetArchiveMountResponse
-      result.mounts = responseData.mounts
+      const responseData = e.response.data as MountStatusResponse
+      result.mounts = mountPointInfosToNodes(responseData.mounts)
       result.mounted = responseData.mounted
       if (responseData.messages) {
         for (const message of responseData.messages) {
@@ -840,7 +814,7 @@ async function getArchiveMounts(fileName: string, silent?: boolean) {
     if (!archivePassPhrase.value && mount.archivePassPhrase) {
       archivePassPhrase.value = mount.archivePassPhrase
     }
-    delete mount.archivePassPhrase
+    mount.archivePassPhrase = '****'
   }
   if (silent !== true) {
     --loading.value
@@ -862,16 +836,14 @@ const mountArchive = async () => {
   }
   requestData.stripCommonPathPrefix = !!archiveMountStripCommonPathPrefix.value
   try {
-    const response = await axios.post<ArchiveMount>(url, requestData)
+    const response = await axios.post<ArchiveMountResponse>(url, requestData)
     if (!archiveMountBackgroundJob.value) {
-      const newMount = response.data
-      const newFileId = newMount.mountPoint.fileid
-      if (archiveMounts.value.findIndex((mount) => mount.mountPoint.fileid === newFileId) === -1) {
+      const newFileId = `${response.data.mountPoint.fileid}`
+      if (archiveMounts.value.findIndex((mount) => mount.mountPoint.id === newFileId) === -1) {
+        const newMount = mountPointInfoToMountPoint(response.data, response.data.mountPoint)
+        newMount.mountPoint.attributes['is-mount-root'] = true
         archiveMounts.value.push(newMount)
-        const node = fileInfoToNode(response.data.mountPoint)
-        node.attributes['is-mount-root'] = true
-
-        emit('files:node:created', node)
+        emit('files:node:created', newMount.mountPoint)
       }
     }
   } catch (e) {
@@ -913,10 +885,7 @@ const unmount = async (mount: ArchiveMount) => {
     } else {
       logger.error('UNABLE TO FIND DELETED MOUNT IN LIST', mount, archiveMounts)
     }
-    const node = fileInfoToNode(mount.mountPoint)
-    node.attributes['is-mount-root'] = true
-
-    emit('files:node:deleted', node)
+    emit('files:node:deleted', mount.mountPoint)
   } catch (e) {
     logger.error('ERROR', e)
     const messages: string[] = []
@@ -958,10 +927,6 @@ const unmount = async (mount: ArchiveMount) => {
 const extractArchive = async () => {
   const archivePath = encodeURIComponent(fileName.value!)
   const targetPath = encodeURIComponent(archiveExtractPathName.value)
-  const urlTemplate = archiveExtractBackgroundJob.value
-    ? 'archive/schedule/extract/{archivePath}/{targetPath}'
-    : 'archive/extract/{archivePath}/{targetPath}'
-  const url = generateAppUrl(urlTemplate, { archivePath, targetPath })
   setBusyState(true)
   const requestData: Record<string, string|boolean> = {}
   if (archivePassPhrase.value) {
@@ -969,11 +934,13 @@ const extractArchive = async () => {
   }
   requestData.stripCommonPathPrefix = !!archiveExtractStripCommonPathPrefix.value
   try {
-    const response = await axios.post<{ targetFolder: FileInfoDTO }>(url, requestData)
-    if (!archiveExtractBackgroundJob.value) {
+    if (archiveExtractBackgroundJob.value) {
+      const url = generateAppUrl('archive/schedule/extract/{archivePath}/{targetPath}', { archivePath, targetPath })
+      await axios.post<BackgroundJobScheduledResponse>(url, requestData)
+    } else {
+      const url = generateAppUrl('archive/extract/{archivePath}/{targetPath}', { archivePath, targetPath })
+      const response = await axios.post<ArchiveExtractResponse>(url, requestData)
       const node = fileInfoToNode(response.data.targetFolder)
-      node.attributes['is-mount-root'] = true
-
       emit('files:node:created', node)
     }
   } catch (e) {
@@ -1004,11 +971,7 @@ const extractArchive = async () => {
 }
 
 const setPassPhrase = async () => {
-  const newPassPhrase: string = showArchivePassPhrase.value
-    ? archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="text"]')?.value || ''
-    : archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="password"]')?.value || ''
-  archivePassPhrase.value = newPassPhrase
-
+  logger.info('PASPHRASE', { archivePassPhrase })
   // patch it into existing mounts if any
   const archivePath = encodeURIComponent(fileName.value!)
   const url = generateUrl('/apps/' + appName + '/archive/mount/{archivePath}', { archivePath })
@@ -1019,7 +982,7 @@ const setPassPhrase = async () => {
     },
   }
   try {
-    await axios.patch(url, requestData)
+    await axios.patch<MountPatchResponse>(url, requestData)
   } catch (e) {
     logger.error('ERROR', e)
     if (isAxiosErrorResponse(e)) {
@@ -1044,24 +1007,6 @@ const setPassPhrase = async () => {
   setBusyState(false)
 }
 
-const togglePassPhraseVisibility = async () => {
-  // this is sooo complicated because the NC NcAction controls are
-  // seemingly only pro-forma vue-controls. There is no working
-  // v-model support, e.g.
-  let visibleElement = showArchivePassPhrase.value
-    ? archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="text"]')!
-    : archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="password"]')!
-  const currentValue: string = visibleElement.value
-
-  showArchivePassPhrase.value = !showArchivePassPhrase.value
-  await nextTick()
-
-  visibleElement = showArchivePassPhrase.value
-    ? archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="text"]')!
-    : archivePassPhraseComponent.value!.$el.querySelector<HTMLInputElement>('input[type="password"]')!
-  visibleElement.value = currentValue
-}
-
 const filesAppMountPointUrl = (mountPoint: ArchiveMount) => {
   return generateUrl('/apps/files') + '?dir=' + encodeURIComponent(mountPoint.mountPointPath)
 }
@@ -1070,83 +1015,147 @@ const onNotification = (event: NextcloudEvents['notifications:notification:recei
   if (event?.notification?.app !== appName) {
     return
   }
+  logger.info('APP NOTIFICATION RECEIVED', { event })
   const destinationData = event?.notification?.messageRichParameters?.destination as DestinationParameter
-  if (destinationData?.status !== 'mount') {
-    return // nothing special ATM
-  }
-  const mountData = destinationData?.mount
-  if (!mountData) {
-    logger.error('No mount info in mount notification event')
-    return
-  }
-  let mount: ArchiveMountEntity
-  try {
-    mount = JSON.parse(mountData)
-  } catch (error) {
-    logger.error('files_archive, unable to decode mount entity', { event, mountData, error })
-    return
-  }
-  if (mount.archiveFileId !== archiveFileId.value) {
-    // not for us, in the future we may want to maintain a store
-    // and cache the data for all file-ids.
-    logger.info('*** Archive notification for other file received', event)
-    return
-  }
-  const jobId = getJobIdFromOperation('mount', mount.archiveFilePath, mount.mountPointPath)
-  if (pendingJobs.value[jobId]) {
-    delete pendingJobs.value[jobId]
-  }
-  logger.info('*** Mount notification received, updating mount-list', destinationData)
-  const mountFileId = destinationData.id
-  const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.fileid === mountFileId)
-  if (mountIndex === -1) {
-    try {
-      archiveMounts.value.push({ ...mount, mountPoint: JSON.parse(destinationData.folder) })
-    } catch (error) {
-      logger.error('Unable to decode mount point folder file-info record.', { destinationData, error })
+  switch (destinationData?.status) {
+    case 'mount': {
+      const mountData = destinationData?.mount
+      if (!mountData) {
+        logger.error('No mount info in mount notification event')
+        return
+      }
+      let mount: ArchiveMountEntity
+      try {
+        mount = JSON.parse(mountData)
+      } catch (error) {
+        logger.error('files_archive, unable to decode mount entity', { event, mountData, error })
+        return
+      }
+      if (mount.archiveFileId !== archiveFileId.value) {
+        // not for us, in the future we may want to maintain a store
+        // and cache the data for all file-ids.
+        logger.info('*** Archive notification for other file received', event)
+        return
+      }
+      const jobId = getJobIdFromOperation('mount', mount.archiveFileId, mount.mountPointPath)
+      if (pendingJobs.value[jobId]) {
+        delete pendingJobs.value[jobId]
+      }
+      logger.info('*** Mount notification received, updating mount-list', destinationData)
+      const mountFileId = destinationData.id
+      const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.id === mountFileId)
+      if (mountIndex === -1) {
+        try {
+          const newMount = mountPointInfoToMountPoint(mount, JSON.parse(destinationData.folder) as FileInfoDTO<'folder'>)
+          archiveMounts.value.push(newMount)
+        } catch (error) {
+          logger.error('Unable to decode mount point folder file-info record.', { destinationData, error })
+        }
+      }
+      break
+    }
+    case 'extract': {
+      const sourceData = event.notification.messageRichParameters!.source as SourceParameter
+      const archiveFileId = sourceData.id
+      const destinationPath = destinationData.path
+      if (!destinationPath) {
+        logger.error('No extract destination info in extract notification event')
+        return
+      }
+      const jobId = getJobIdFromOperation('extract', archiveFileId, destinationPath)
+      if (pendingJobs.value[jobId]) {
+        delete pendingJobs.value[jobId]
+      } else {
+        logger.error('CANNOT FIND JOB DATA', { jobs: pendingJobs.value, jobId })
+      }
+      break
     }
   }
 }
 
-const onMountPointRenamed = (mountPoint: INode) => {
+/**
+ * A listener tracking renaming of the moint point and the archive
+ * file. Note that using a watch on props.node is not a good idea for
+ * monitoring the archive file node as alterations on the node occur
+ * before the DAV-backend has performed its file actions.
+ *
+ * @param node Any node, we determine if it of interest for us.
+ */
+const onNodeRenamedd = async (node: INode) => {
   // update the list of mountpoints
-  const mountFileId = mountPoint.id
-  const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.fileid === mountFileId)
+  const nodeId = node.id
+
+  if (nodeId === props.node.id) {
+    // archive file has been renamed, just update all the data.
+    await update()
+    logger.debug('AFTER ARCHIVE FILE RENAME', { node, propsNode: props.node, equal: node === props.node })
+    return
+  }
+
+  const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.id === nodeId)
   if (mountIndex >= 0) {
     logger.info('BERFORE RENAME', { ...archiveMounts[mountIndex] })
-    const mount = archiveMounts[mountIndex]
-    mount.mountPoint = mountPoint
-    mount.mountPointPath = mountPoint.path
-    mount.mountPointPathHash = md5(mountPoint.path)
-    logger.info('AFTER RENAME', { ...mount })
-  } else {
-    logger.info('RENAME OF NODE NOT FOR US', mountPoint)
+    const mount = archiveMounts.value[mountIndex]
+    mount.mountPoint = node as IFolder
+    mount.mountPointPath = node.path
+    mount.mountPointPathHash = md5(node.path)
+    logger.debug('AFTER MOUNT POINT RENAME', { ...mount })
+    return
   }
+
+  logger.debug('RENAME OF NODE NOT FOR US', { node })
 }
 
-const onMountPointDeleted = (mountPoint: INode) => {
-  const mountFileId = mountPoint.id
-  const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.fileid === mountFileId)
+/**
+ * Monitor deletion of either the archive file or associated mount point(s).
+ *
+ * @param node Any node, we determine if it is of interest to us.
+ */
+const onNodeDeleted = (node: INode) => {
+  const nodeId = node.id
+
+  if (nodeId === props.node.id) {
+    // in this case we have to trigger a reload of the file-list.
+    for (const mount of archiveMounts.value) {
+      emit('files:node:deleted', mount.mountPoint)
+    }
+    archiveMounts.value = []
+
+    logger.debug('ARCHIVE FILE HAS BEEN DELETED')
+    return
+  }
+
+  const mountIndex = archiveMounts.value.findIndex((mount) => mount.mountPoint.id === nodeId)
   if (mountIndex >= 0) {
     archiveMounts.value.splice(mountIndex, 1)
-    logger.info('RECORD UNMOUNT', mountPoint)
-  } else {
-    logger.info('DELETE OF NODE NOT FOR US', {
-      mountPoint,
+    logger.debug('RECORD UNMOUNT', {
+      node,
       archiveMounts: archiveMounts.value,
     })
+    return
   }
+
+  logger.debug('DELETE OF NODE NOT FOR US', {
+    node,
+    archiveMounts: archiveMounts.value,
+  })
 }
 
+logger.debug('PROPS', { ...props })
+
+// The files sidebar reuses this component when another file is selected. Only
+// the id is watched, renames of the archive are handled by onNodeRenamedd().
+watch(() => props.node.id, () => update(), { immediate: true })
+
 onBeforeMount(() => {
-  subscribe('files:node:deleted', onMountPointDeleted)
-  subscribe('files:node:renamed', onMountPointRenamed)
+  subscribe('files:node:deleted', onNodeDeleted)
+  subscribe('files:node:renamed', onNodeRenamedd)
   subscribe('notifications:notification:received', onNotification)
 })
 
 onUnmounted(() => {
-  unsubscribe('files:node:deleted', onMountPointDeleted)
-  unsubscribe('files:node:renamed', onMountPointRenamed)
+  unsubscribe('files:node:deleted', onNodeDeleted)
+  unsubscribe('files:node:renamed', onNodeRenamedd)
   unsubscribe('notifications:notification:received', onNotification)
 })
 
@@ -1170,40 +1179,15 @@ onUnmounted(() => {
     background-position: left;
     padding-left:20px;
   }
-  :deep(.archive-info) {
-    .list-item__wrapper{
-      &:not(.archive-comment) {
-        .list-item-content__wrapper {
-          height:24px;
-        }
-        a.list-item {
-          padding:0;
-        }
-      }
-      &.archive-comment {
-        a.list-item {
-          padding:8px 0;
-          .line-two__subtitle {
-            max-width:100%;
-            white-space:normal;
-          }
-        }
-      }
-      &.archive-error {
-        .line-one__details {
-          font-weight:bold;
-          font-style:italic;
-          color:red;
-        }
-      }
-    }
-  }
   .files-tab-entry {
     min-height:44px;
     &.clickable {
       &, & * {
         cursor:pointer;
       }
+    }
+    .title-annotation::before {
+        content: ' ';
     }
     .files-tab-entry__avatar {
       width: 32px;
@@ -1224,6 +1208,7 @@ onUnmounted(() => {
         text-overflow: ellipsis;
         overflow: hidden;
         max-width: inherit;
+        margin: 0;
       }
     }
     &.directory-chooser {
@@ -1238,11 +1223,24 @@ onUnmounted(() => {
         padding-right:0.5ex;
       }
     }
-    /* ::v-deep .archive-mounts {
-       .list-item-content > .list-item-content__actions {
-       display: block !important;
-       }
-       } */
+    :deep(.list-item__wrapper) {
+      .list-item__anchor {
+        height: fit-content;
+        .list-item-content__subname {
+          white-space: normal;
+        }
+        .list-item-content__name {
+          a {
+            display: block;
+            overflow: inherit;
+            text-overflow: inherit;
+          }
+        }
+      }
+      .list-item-content__actions {
+        align-self: flex-start;
+      }
+    }
   }
 }
 </style>

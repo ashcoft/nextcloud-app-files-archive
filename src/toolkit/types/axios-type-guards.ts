@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * Orchestra member, musicion and project management application.
  *
  * CAFEVDB -- Camerata Academica Freiburg e.V. DataBase.
@@ -19,14 +21,13 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @module
  */
 
-import {
-  type AxiosError,
-  type AxiosResponse,
+import type { AxiosError, AxiosResponse } from 'axios';
 
-  isAxiosError,
-} from 'axios';
+import { isAxiosError } from 'axios';
 
 export { isAxiosError } from 'axios';
 

@@ -1,6 +1,9 @@
+<?php
 /**
+ * Some PHP utility functions for Nextcloud apps.
+ *
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2025, 2026 Claus-Justus Heine
+ * @copyright 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,33 +20,25 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type { FileInfoDTO } from '../toolkit/util/file-node-helper.ts';
+namespace OCA\RotDrop\DevScripts\PhpToTypeScript;
 
-export interface ArchiveMountEntity {
-  id: number;
-  userId: string;
+use Attribute;
 
-  mountPointFileId: string; // avoid integer overflow with snowflake ids
-  mountPointPath: string;
-  mountPointPathHash: string;
+/**
+ * Rename a property. Purpose is to track mutations in jsonSerialize().
+ */
+#[Attribute(Attribute::TARGET_PROPERTY)]
+class TypeScriptPropertyName
+{
+  /** {@inheritdoc} */
+  public function __construct(
+    private string $propertyName,
+  ) {
+  }
 
-  archiveFileId: string; // avoid integer overflow with snowflake ids
-  archiveFilePath: string;
-  archiveFilePathHash: string;
-
-  archivePassPhrase?: string;
-
-  mountFlags: number;
+  /** @return string */
+  public function getPropertyName(): string
+  {
+    return $this->propertyName;
+  }
 }
-
-export interface ArchiveMount extends ArchiveMountEntity {
-  mountPoint: FileInfoDTO;
-}
-
-export interface GetArchiveMountResponse {
-  mounts: ArchiveMount[];
-  mounted: boolean;
-  messages?: string[];
-}
-
-export {};

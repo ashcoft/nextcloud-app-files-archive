@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * @author Claus-Justus Heine
  * @copyright 2025, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
@@ -15,12 +17,9 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @module
  */
-
-// The core window.d.ts seems to be ignored (why?) so we duplicate the defs here
-import type Tab from '../../../../files/src/models/Tab.js';
-import type Settings from '../../../../files/src/services/Settings.js';
-import type Sidebar from '../../../../files/src/services/Sidebar.js';
 
 import '@nextcloud/typings';
 
@@ -33,11 +32,13 @@ type SidebarAPI = Sidebar & {
 };
 
 declare global {
-  const OC: Nextcloud.v31.OC;
+  var OC: Nextcloud.v32.OC & { config: { versionstring: string } };
+  // eslint-disable-next-line camelcase
+  var _oc_webroot: string;
   // Private Files namespace
-  const OCA: {
+  var OCA: {
     Files: {
-      Settings: Settings;
+      Settings: unknown;
       Sidebar: SidebarAPI;
     };
   } & Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -48,7 +49,7 @@ declare global {
   //      [key: string]: any;
   //    };
   //  };
-  const OCP: Nextcloud.v31.OCP;
+  var OCP: Nextcloud.v32.OCP;
 }
 
 export {};

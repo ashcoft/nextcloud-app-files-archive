@@ -59,7 +59,7 @@ class FilesActionListener implements IEventListener
   const ASSET_BASENAME = [
     LoadAdditionalScriptsEvent::class => [
       Constants::JS => 'files-hooks',
-      Constants::CSS => null,
+      Constants::CSS => 'files-hooks',
     ],
     LoadSidebar::class => [
       Constants::JS => 'files-sidebar-hooks',
@@ -138,16 +138,29 @@ class FilesActionListener implements IEventListener
         'adminContact' => $this->getCloudAdminContacts(implode: true),
         'phpUserAgent' => $_SERVER['HTTP_USER_AGENT'], // @@todo get in javascript from request
         'archiveMimeTypes' => $archiveMimeTypes,
-        SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT => $cloudConfig->getUserValue(
-          $userId, $appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT, false),
-        SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT => $cloudConfig->getUserValue(
-          $userId, $appName, SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT, false),
+        SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT => filter_var(
+          $cloudConfig->getUserValue(
+            $userId, $appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+            $cloudConfig->getAppValue(
+              $appName, SettingsController::MOUNT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+              SettingsController::STRIP_COMMON_PATH_PREFIX_DEFAULT)),
+          FILTER_VALIDATE_BOOLEAN),
+        SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT => filter_var(
+          $cloudConfig->getUserValue(
+            $userId, $appName, SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+            $cloudConfig->getAppValue(
+              $appName, SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+              SettingsController::STRIP_COMMON_PATH_PREFIX_DEFAULT)),
+          FILTER_VALIDATE_BOOLEAN),
         SettingsController::MOUNT_BACKGROUND_JOB => $cloudConfig->getUserValue(
           $userId, $appName, SettingsController::MOUNT_BACKGROUND_JOB, SettingsController::MOUNT_BACKGROUND_JOB_DEFAULT),
         SettingsController::EXTRACT_BACKGROUND_JOB => $cloudConfig->getUserValue(
           $userId, $appName, SettingsController::EXTRACT_BACKGROUND_JOB, SettingsController::EXTRACT_BACKGROUND_JOB_DEFAULT),
         SettingsController::MOUNT_BY_LEFT_CLICK => $cloudConfig->getUserValue(
           $userId, $appName, SettingsController::MOUNT_BY_LEFT_CLICK, SettingsController::MOUNT_BY_LEFT_CLICK_DEFAULT),
+        SettingsController::MOUNT_DISABLED => (bool)$cloudConfig->getUserValue(
+          $userId, $appName, SettingsController::MOUNT_DISABLED, (bool)$cloudConfig->getAppValue(
+            $appName, SettingsController::MOUNT_DISABLED, SettingsController::MOUNT_DISABLED_DEFAULT)),
         SettingsController::MOUNT_POINT_TEMPLATE => SettingsController::FOLDER_TEMPLATE_DEFAULT,
         SettingsController::EXTRACT_TARGET_TEMPLATE => SettingsController::FOLDER_TEMPLATE_DEFAULT,
       ]);
@@ -162,7 +175,7 @@ class FilesActionListener implements IEventListener
     $assetBasename = self::ASSET_BASENAME[$eventClass][Constants::JS];
     if ($assetBasename) {
       try {
-        list('asset' => $scriptAsset,) = $this->getJSAsset($assetBasename);
+        $scriptAsset = $this->getJSAsset($assetBasename);
         \OCP\Util::addScript($appName, $scriptAsset);
       } catch (Throwable $t) {
         $this->logException($t, 'Unable to add script asset ' . $assetBasename);
@@ -171,7 +184,7 @@ class FilesActionListener implements IEventListener
     $assetBasename = self::ASSET_BASENAME[$eventClass][Constants::CSS];
     if ($assetBasename) {
       try {
-        list('asset' => $styleAsset,) = $this->getCSSAsset($assetBasename);
+        $styleAsset = $this->getCSSAsset($assetBasename);
         \OCP\Util::addStyle($appName, $styleAsset);
       } catch (Throwable $t) {
         $this->logException($t, 'Unable to add style asset ' . $assetBasename);

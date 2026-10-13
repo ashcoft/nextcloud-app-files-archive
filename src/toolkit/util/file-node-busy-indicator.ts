@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * @author Claus-Justus Heine
  * @copyright 2025, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
@@ -15,23 +17,27 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @module
  */
 
-import type { INode } from '@nextcloud/files';
+import type { INode, INodeStatus } from '@nextcloud/files';
 
 import { emit } from '@nextcloud/event-bus';
 import { NodeStatus } from '@nextcloud/files';
 
-const busyNodes: INode[] = [];
+const busyNodes: { node: INode; status?: INodeStatus }[] = [];
 
-export const setFileNodeBusy = (node?: INode, state: boolean = true) => {
-  if (node && state) {
+export const setFileNodeBusy = (node?: INode, status: boolean = true) => {
+  if (node && status) {
+    console.info('NODE IDS', { id: node.id, fileid: node.fileid });
+    const busyNode = { node, status: node.status };
     node.status = NodeStatus.LOADING;
     emit('files:node:updated', node);
-    busyNodes.push(node);
+    busyNodes.push(busyNode);
   } else {
-    for (const node of busyNodes) {
-      node.status = undefined;
+    for (const { node, status } of busyNodes) {
+      node.status = status;
       emit('files:node:updated', node);
     }
     busyNodes.splice(0, busyNodes.length);

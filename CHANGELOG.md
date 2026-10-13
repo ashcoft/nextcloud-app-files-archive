@@ -4,15 +4,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] -- unreleased
+## [1.3.1] -- 2026-10-01
+
+### Fixed
+
+- typo in ExceptionMiddleware leading to an exception
+- broken migrations making it impossible to freshly install this app
+
+## [1.3.0] -- 2026-09-29
 
 ### Changed
 
-- support NC33 and up
+- support NC33-NC35 and up
 - drop support for NC32 and below
 - support PHP 8.4 and up
 - drop support for PHP 8.3 and below
 - switch to Vue3
+
+### Added
+
+- basic CI checks for PRs (courtesy Fabio Fantoni)
+- "extract here" menu item (courtesy Fabio Fantoni)
+- tarball generation on tag vX.Y.Z push (courtesy Fabio Fantoni)
+
+### Fixed
+
+- replace legacy storage ids using the archive pathname by consistent
+  storage ids using the archive file id
+- remove the storage file path name from the database cache
+- wrap wapmorgan\UnifiedArchive using php-scoper
+- improved filename encoding handling (courtesy Fabio Fantoni)
 
 ## [1.2.8] -- 2025-10-15
 

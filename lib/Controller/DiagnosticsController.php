@@ -3,7 +3,7 @@
  * Archive Manager for Nextcloud
  *
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2024 Claus-Justus Heine <himself@claus-justus-heine.de>
+ * @copyright 2024, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -24,21 +24,24 @@ namespace OCA\FilesArchive\Controller;
 
 use Throwable;
 
-use wapmorgan\UnifiedArchive\Commands as ArchiveCommands;
+use OCA\FilesArchive\Scoped\wapmorgan\UnifiedArchive\Commands as ArchiveCommands;
 
-use SensioLabs\AnsiConverter;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
-use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Input\InputDefinition;
-use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Helper as ConsoleHelper;
+use OCA\FilesArchive\Scoped\SensioLabs\AnsiConverter;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Input\ArrayInput;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Output\BufferedOutput;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Output\OutputInterface;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Input\InputDefinition;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Input\InputArgument;
+use OCA\FilesArchive\Scoped\Symfony\Component\Console\Helper as ConsoleHelper;
 
-use Psr\Log\LoggerInterface;
-use OCP\IRequest;
 use OCP\AppFramework\Controller;
-use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\Attribute as CoreAttributes;
+use OCP\AppFramework\Http\JSONResponse;
 use OCP\IL10N;
+use OCP\IRequest;
+use Psr\Log\LoggerInterface;
+
+use OCA\FilesArchive\Controller\DTO;
 
 /**
  * AJAX endpoint for diagnostics, currently the installation status of the
@@ -46,7 +49,6 @@ use OCP\IL10N;
  */
 class DiagnosticsController extends Controller
 {
-  use \OCA\FilesArchive\Toolkit\Traits\ResponseTrait;
   use \OCA\FilesArchive\Toolkit\Traits\LoggerTrait;
 
   // phpcs:ignore Squiz.Commenting.FunctionComment.Missing
@@ -63,29 +65,25 @@ class DiagnosticsController extends Controller
   /**
    * Return the information of the ArchiveCommands\FormatsCommand
    *
-   * @return DataResponse
-   *
-   * @AuthorizedAdminSetting(settings=OCA\FilesArchive\Settings\Admin)
+   * @return JSONResponse
    */
-  public function archiveFormats():DataResponse
+  #[CoreAttributes\AuthorizedAdminSetting(settings: \OCA\FilesArchive\Settings\Admin::class)]
+  #[CoreAttributes\FrontpageRoute(verb: 'GET', url: '/diagnostics/archive/formats')]
+  public function archiveFormats(): JSONResponse
   {
-    return self::dataResponse(
-      $this->runArchiveCommand(ArchiveCommands\FormatsCommand::class, [ 'driver' => null, ])
-    );
+    return $this->runArchiveCommand(ArchiveCommands\FormatsCommand::class, [ 'driver' => null, ])->response();
   }
 
   /**
    * Return the information of the ArchiveCommands\DriversCommand
    *
-   * @return DataResponse
-   *
-   * @AuthorizedAdminSetting(settings=OCA\FilesArchive\Settings\Admin)
+   * @return JSONResponse
    */
-  public function archiveDrivers():DataResponse
+  #[CoreAttributes\AuthorizedAdminSetting(settings: \OCA\FilesArchive\Settings\Admin::class)]
+  #[CoreAttributes\FrontpageRoute(verb: 'GET', url: '/diagnostics/archive/drivers')]
+  public function archiveDrivers(): JSONResponse
   {
-    return self::dataResponse(
-      $this->runArchiveCommand(ArchiveCommands\DriversCommand::class),
-    );
+    return $this->runArchiveCommand(ArchiveCommands\DriversCommand::class)->response();
   }
 
   /**
@@ -93,15 +91,13 @@ class DiagnosticsController extends Controller
    *
    * @param string $format
    *
-   * @return DataResponse
-   *
-   * @AuthorizedAdminSetting(settings=OCA\FilesArchive\Settings\Admin)
+   * @return JSONResponse
    */
-  public function archiveFormat(string $format):DataResponse
+  #[CoreAttributes\AuthorizedAdminSetting(settings: \OCA\FilesArchive\Settings\Admin::class)]
+  #[CoreAttributes\FrontpageRoute(verb: 'GET', url: '/diagnostics/archive/format/{format}')]
+  public function archiveFormat(string $format): DataResponse
   {
-    return self::dataResponse(
-      $this->runArchiveCommand(ArchiveCommands\FormatCommand::class, [ 'format' => $format ])
-    );
+    return $this->runArchiveCommand(ArchiveCommands\FormatCommand::class, [ 'format' => $format ])->response();
   }
 
   /**
@@ -111,7 +107,7 @@ class DiagnosticsController extends Controller
    *
    * @return array HTML and CSS output.
    */
-  private function runArchiveCommand(string $commandClass, array $arguments = []):array
+  private function runArchiveCommand(string $commandClass, array $arguments = []): DTO\DiagnosticsResponse
   {
     $helperSet = new ConsoleHelper\HelperSet([
       new ConsoleHelper\FormatterHelper(),
@@ -160,13 +156,12 @@ class DiagnosticsController extends Controller
     $converter = new AnsiConverter\AnsiToHtmlConverter(inlineStyles: false);
     $html = $converter->convert($content);
 
-
-    return [
-      'html' => $html,
-      'css' => [
-        'light' => $lightTheme->asCss(),
-        'dark' => $darkTheme->asCss(),
-      ]
-    ];
+    return new DTO\DiagnosticsResponse(
+      html: $html,
+      css: new DTO\DiagnosticsResponse\CSS(
+        light: $lightTheme->asCss(),
+        dark: $darkTheme->asCss(),
+      ),
+    );
   }
 }

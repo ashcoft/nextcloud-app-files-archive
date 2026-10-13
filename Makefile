@@ -2,24 +2,43 @@
 # later. See the COPYING file.
 SRCDIR = .
 ABSSRCDIR = $(CURDIR)
+#
+# try to parse the info.xml if we can, only then fall-back to the directory name
+#
+APP_INFO = $(SRCDIR)/appinfo/info.xml
+XPATH = $(shell which xpath 2> /dev/null)
+ifneq ($(XPATH),)
+APP_NAME = $(shell $(XPATH) -q -e '/info/id/text()' $(APP_INFO))
+APP_VERSION = $(shell $(XPATH) -q -e '/info/version/text()' $(APP_INFO))
+APP_NAMESPACE = $(shell $(XPATH) -q -e '/info/namespace/text()' $(APP_INFO))
+SCOPED_NAMESPACE_POSTFIX = $(shell $(XPATH) -q -e '/info/scopednamespace/text()' $(APP_INFO))
+else
+$(error The xpath binary could not be found, falling back to using the CWD as app-name)
+endif
 DEV_LIB_DIR = $(ABSSRCDIR)/dev-scripts/lib
 BUILDDIR = ./build
 ABSBUILDDIR = $(ABSSRCDIR)/build
 BUILD_TOOLS_DIR = $(BUILDDIR)/tools
 DOWNLOADS_DIR = ./downloads
 CONFIG_DIR = ./config
+TYPESCRIPT_CONVERTER = $(ABSSRCDIR)/dev-scripts/php-to-typescript.php
+TS_TYPES_DIR = $(ABSBUILDDIR)/ts-types
+TS_PHP_SOURCE_DIRS = lib
 
 include $(DEV_LIB_DIR)/makefile/setup.mk
 
 SILENT = @
 
 # make these overridable from the command line
-RSYNC = $(shell which rsync 2> /dev/null)
-PHP = $(shell which php 2> /dev/null)
+EMACS = $(shell which emacs 2> /dev/null)
 NPM = $(shell which npm 2> /dev/null)
-WGET = $(shell which wget 2> /dev/null)
+BUNDLER_CONFIG = vite.config.ts
 OPENSSL = $(shell which openssl 2> /dev/null)
+PHP = $(shell which php 2> /dev/null)
 PHPUNIT = ./vendor-bin/phpunit/vendor/bin/phpunit
+PHP_SCOPER = $(ABSSRCDIR)/vendor-bin/php-scoper/vendor/bin/php-scoper
+RSYNC = $(shell which rsync 2> /dev/null)
+WGET = $(shell which wget 2> /dev/null)
 
 COMPOSER_SYSTEM = $(shell which composer 2> /dev/null)
 ifeq (, $(COMPOSER_SYSTEM))
@@ -47,7 +66,7 @@ include $(MAKE_HELP_DIR)/MakeHelp.mk
 
 APPSTORE_BUILD_DIR = $(BUILDDIR)/artifacts/appstore
 APPSTORE_COMPRESSION = z
-APPSTORE_PACKAGE_FILE := $(APPSTORE_BUILD_DIR)/$(APP_NAME).tar
+APPSTORE_PACKAGE_FILE := $(APPSTORE_BUILD_DIR)/$(APP_NAME)-$(APP_VERSION).tar
 ifeq ($(APPSTORE_COMPRESSION),z)
   APPSTORE_PACKAGE_FILE := $(APPSTORE_PACKAGE_FILE).gz
 else ifeq ($(APPSTORE_COMPRESSION),J)
@@ -63,26 +82,63 @@ all: help
 .PHONY: all
 
 #@@ Build the distribution assets (minified, without debugging info)
-build: dev-setup npm-build test
+build: dev-setup npm-build
 .PHONY: build
 
 #@@ Build the development assets (include debugging information)
-dev: dev-setup npm-dev test
+dev: dev-setup npm-dev
 .PHONY: dev
 
 #@private
-dev-setup: app-toolkit composer
+dev-setup: app-toolkit composer namespace-wrapper
 .PHONY: dev-setup
 
 include $(DEV_LIB_DIR)/makefile/composer.mk
 
+#@private
+php-scoper-install: $(PHP_SCOPER)
+.PHONY: php-scoper-install
+
+$(PHP_SCOPER): composer.lock
+	if ! [ -x "$@" ]; then $(COMPOSER) bin php-scoper install; else touch "$@"; fi
+
+composer-scoped.lock: composer-scoped.json Makefile
+	rm -f composer-scoped.lock
+
+$(BUILDDIR)/vendor-scoped: composer-scoped.lock
+	mkdir -p $(BUILDDIR)
+	ln -fs ../vendor $(BUILDDIR)
+	rm -rf $(BUILDDIR)/vendor-scoped
+	ln -sf ../composer-patches $(BUILDDIR)
+	env COMPOSER="$(ABSSRCDIR)/composer-scoped.json" $(COMPOSER) -d$(BUILDDIR) install $(COMPOSER_OPTIONS)
+	env COMPOSER="$(ABSSRCDIR)/composer-scoped.json" $(COMPOSER) -d$(BUILDDIR) update $(COMPOSER_OPTIONS) --no-dev
+
+$(BUILDDIR)/vendor-scoped/autoload.php: $(BUILDDIR)/vendor-scoped composer-scoped.json $(MAKEFILE_DEP)
+	env COMPOSER="$(ABSSRCDIR)/composer-scoped.json" $(COMPOSER) -d$(BUILDDIR) dump-autoload
+
+vendor-scoped: $(MAKEFILE_DEP) $(PHP_SCOPER) scoper.inc.php $(BUILDDIR)/vendor-scoped
+	$(PHP_SCOPER) add-prefix -d$(BUILDDIR) --config=$(ABSSRCDIR)/scoper.inc.php --output-dir=$(ABSSRCDIR)/vendor-scoped --force
+# scoper does not handle symlinks
+#	cp -a $(BUILDDIR)/vendor-scoped/bin $(ABSSRCDIR)/vendor-scoped/
+# scoper does not preserve executable bits
+#	find $(ABSSRCDIR)/vendor-scoped -name bin -a -type d -exec chmod -R gu+x {} \;
+
+vendor-scoped/autoload.php: vendor-scoped
+	env COMPOSER="$(ABSSRCDIR)/composer-scoped.json" $(COMPOSER) dump-autoload
+	cd vendor-scoped; sed -e 's/@FILE_IDENTIFIER_PREFIX@/OCA_$(APP_NAMESPACE)_$(SCOPED_NAMESPACE_POSTFIX)/g' $(ABSSRCDIR)/composer-patches/composer/scoped_autoload_real.patch|patch -p1
+
+namespace-wrapper: php-scoper-install vendor-scoped/autoload.php
+.PHONY: namespace-wrapper
+
 APP_TOOLKIT_DIR = $(ABSSRCDIR)/php-toolkit
 APP_TOOLKIT_DEST = $(ABSSRCDIR)/lib/Toolkit
 APP_TOOLKIT_NS = FilesArchive
+APP_WRAPPER_NS = $(SCOPED_NAMESPACE_POSTFIX)
 
 include $(APP_TOOLKIT_DIR)/tools/scopeme.mk
 include $(DEV_LIB_DIR)/makefile/ts-app-config.mk
 include $(DEV_LIB_DIR)/makefile/ts-notification-api.mk
+include $(DEV_LIB_DIR)/makefile/ts-types-files.mk
 
 L10N_FILES = $(wildcard l10n/*.js l10n/*.json)
 JS_FILES = $(shell find $(ABSSRCDIR)/src -name "*.js" -o -name "*.vue" -o -name "*.ts")\
@@ -90,7 +146,7 @@ JS_FILES = $(shell find $(ABSSRCDIR)/src -name "*.js" -o -name "*.vue" -o -name 
 IMG_FILES = $(shell find $(ABSSRCDIR)/img -name "*.svg")
 
 NPM_INIT_DEPS =\
- Makefile package-lock.json package.json webpack.config.js .eslintrc.js
+ Makefile package-lock.json package.json $(BUNDLER_CONFIG) eslint.config.mjs
 
 WEBPACK_DEPS =\
  $(NPM_INIT_DEPS)\
@@ -98,17 +154,18 @@ WEBPACK_DEPS =\
  $(IMG_FILES)\
  $(L10N_FILES)\
  $(TS_APP_CONFIG)\
+ ts-types-files\
  $(TS_NOTIFICATION_API)
 
 include $(DEV_LIB_DIR)/makefile/npm.mk
 
 #@@ Run phpcs on the PHP code
 phpcs: composer
-	vendor/bin/phpcs -s --report=emacs --standard=$(SRCDIR)/.phpcs.xml lib/ appinfo/ templates/
+	vendor-bin/phpcs/vendor/bin/phpcs -s --report=emacs --standard=$(SRCDIR)/.phpcs.xml lib/ appinfo/ templates/
 
 #@@ Run phpmd on the PHP code
 phpmd: composer
-	vendor/bin/phpmd lib/,appinfo/,templates/ text $(SRCDIR)/.phpmd.xml
+	vendor-bin/phpmd/vendor/bin/phpmd lib/,appinfo/,templates/ text $(SRCDIR)/.phpmd.xml
 
 # what has to be copied to the appstore archive
 APPSTORE_FILES =\
@@ -120,6 +177,7 @@ APPSTORE_FILES =\
  templates\
  lib\
  vendor\
+ vendor-scoped\
  config\
  CHANGELOG.md\
  COPYING\
@@ -128,10 +186,9 @@ APPSTORE_FILES =\
 # .htaccess is blacklisted by the app-store installer, so we have to remove it
 APPSTORE_BLACKLISTED = foobar .git* .*keep .htaccess *~
 
-#@private
-appstore: COMPOSER_OPTIONS := $(COMPOSER_OPTIONS) --no-dev
 #@@ Prepare appstore archive
 appstore: clean dev-setup npm-build
+	$(COMPOSER) update --no-dev
 	mkdir -p $(APPSTORE_SIGN_DIR)/$(APP_NAME)
 	$(RSYNC) -a -L $(APPSTORE_BLACKLISTED:%=--exclude '%') $(APPSTORE_FILES) $(APPSTORE_SIGN_DIR)/$(APP_NAME)
 	mkdir -p $(BUILD_CERT_DIR)
@@ -173,6 +230,7 @@ clean: ## Tidy up local environment
 #@@ Same as clean but also removes dependencies installed by composer, bower and npm
 distclean: clean ## Clean even more, calls clean
 	rm -rf vendor
+	rm -rf vendor-scoped
 	rm -rf vendor-bin/**/vendor
 	rm -rf node_modules
 	rm -rf lib/Toolkit/*
@@ -181,7 +239,6 @@ distclean: clean ## Clean even more, calls clean
 #@@ Almost everything but downloads
 mostlyclean: webpack-clean distclean
 	rm -f composer*.lock
-	rm -rf vendor-bin/**/vendor
 	rm -f composer.json
 	rm -f vendor-bin/**/composer.lock
 	rm -f stamp.composer-core-versions
@@ -190,7 +247,7 @@ mostlyclean: webpack-clean distclean
 	rm -f stats.json
 
 #@@ Really delete everything but the bare source files
-realclean: mostlyclean downloadsclean
+realclean: mostlyclean downloadsclean dev-scripts-real-clean
 .PHONY: realclean
 
 #@@ Remove non-npm non-composer downloads
@@ -211,3 +268,12 @@ unit-tests:
 integration-tests:
 	$(PHPUNIT) -c phpunit.integration.xml
 .PHONY: integration-tests
+
+#@private
+run-tide:
+	$(EMACS) --batch --file $(SRCDIR)/src/vue-app.ts  -l $(DEV_LIB_DIR)/scripts/tide-project-errors.el|tee tide-errors.log
+.PHONY: run-tide
+
+#@@ Runs the Emacs Tide IDE in batch mode and diagnoses TypeScript errors.
+tide: dev-setup ts-app-config ts-types-files run-tide
+.PHONY: tide

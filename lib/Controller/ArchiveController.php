@@ -3,7 +3,7 @@
  * Archive Manager for Nextcloud
  *
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
- * @copyright 2022-2025 Claus-Justus Heine <himself@claus-justus-heine.de>
+ * @copyright 2022-2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,14 +22,17 @@
 
 namespace OCA\FilesArchive\Controller;
 
+use Spatie\TypeScriptTransformer\Attributes as TSAttributes;
+
+use SensitiveParameter;
 use Throwable;
 
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
-use OCP\AppFramework\Http\Attribute;
+use OCP\AppFramework\Http\Attribute as CoreAttributes;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Http\Response;
-use Psr\Container\ContainerInterface;
 use OCP\Files\File;
 use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
@@ -39,17 +42,21 @@ use OCP\IL10N;
 use OCP\IPreview;
 use OCP\IRequest;
 use OCP\Lock\ILockingProvider;
+use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 
 use OCA\FilesArchive\Constants;
+use OCA\FilesArchive\Controller\DTO;
 use OCA\FilesArchive\Service\ArchiveServiceFactory;
 use OCA\FilesArchive\Storage\ArchiveStorage;
 use OCA\FilesArchive\Toolkit\Exceptions as ToolkitExceptions;
+use OCA\FilesArchive\Toolkit\Exceptions\EnduserNotificationException;
 use OCA\FilesArchive\Toolkit\Service\ArchiveService;
 
 /**
  * AJAX endpoint for archive operations and info.
  */
+#[TSAttributes\TypeScript]
 class ArchiveController extends Controller
 {
   use \OCA\FilesArchive\Toolkit\Traits\UtilTrait;
@@ -81,6 +88,8 @@ class ArchiveController extends Controller
   /** @var int */
   private int $archiveBombLimit = Constants::DEFAULT_ADMIN_ARCHIVE_SIZE_LIMIT;
 
+  private bool $stripCommonPathPrefixDefault;
+
   // phpcs:ignore Squiz.Commenting.FunctionComment.Missing
   public function __construct(
     ?string $appName,
@@ -98,6 +107,7 @@ class ArchiveController extends Controller
 
     $this->archiveBombLimit = $cloudConfig->getAppValue(
       $this->appName, SettingsController::ARCHIVE_SIZE_LIMIT, Constants::DEFAULT_ADMIN_ARCHIVE_SIZE_LIMIT);
+
     $this->archiveSizeLimit = $cloudConfig->getUserValue(
       $this->userId, $this->appName, SettingsController::ARCHIVE_SIZE_LIMIT, null);
 
@@ -109,6 +119,15 @@ class ArchiveController extends Controller
 
     $this->autoRenameExtractTarget = (bool)$cloudConfig->getUserValue(
       $this->userId, $this->appName, SettingsController::EXTRACT_TARGET_AUTO_RENAME, false);
+
+    $stripCommonPathPrefixDefault = (bool)$cloudConfig->getAppValue(
+      $this->appName,
+      SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+      SettingsController::STRIP_COMMON_PATH_PREFIX_DEFAULT);
+
+    $this->stripCommonPathPrefixDefault = (bool)$cloudConfig->getUserValue(
+      $this->userId, $this->appName, SettingsController::EXTRACT_STRIP_COMMON_PATH_PREFIX_DEFAULT,
+      $stripCommonPathPrefixDefault);
   }
   // phpcs:enable
 
@@ -117,29 +136,30 @@ class ArchiveController extends Controller
    *
    * @param null|string $passPhrase
    *
-   * @return DataResponse
+   * @return DataResponse|JSONResponse
    */
-  #[Attribute\NoAdminRequired]
-  public function info(string $archivePath, ?string $passPhrase = null):DataResponse
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(verb: 'POST', url: '/archive/info/{archivePath}')]
+  public function info(string $archivePath, #[SensitiveParameter] ?string $passPhrase = null): DataResponse|JSONResponse
   {
     $archivePath = urldecode($archivePath);
 
     $userFolder = $this->rootFolder->getUserFolder($this->userId);
     if (empty($userFolder)) {
-      return self::grumble($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
+      throw new EnduserNotificationException($this->l->t('The user folder for user "%s" could not be opened.', $this->userId));
     }
     try {
       /** @var File $archiveFile */
       $archiveFile = $userFolder->get($archivePath);
     } catch (FileNotFoundException $e) {
-      return self::grumble($this->l->t('The archive file "%s" could not be found on the server.', $archivePath));
+      throw new EnduserNotificationException($this->l->t('The archive file "%s" could not be found on the server.', $archivePath));
     }
 
     $e = null;
     $archiveStatus = self::ARCHIVE_STATUS_OK;
     $httpStatus = Http::STATUS_BAD_REQUEST;
     $messages = [];
-    $archiveInfo = [];
+    $archiveInfo = null;
     /** @var ArchiveService $archiveService */
     try {
       $archiveService = $this->archiveServiceFactory->get($archiveFile);
@@ -158,9 +178,15 @@ class ArchiveController extends Controller
       $this->logException($e);
     }
 
-    // tweak the mount point proposal according to the user preferences
-    $archiveInfo[ArchiveService::ARCHIVE_INFO_DEFAULT_MOUNT_POINT] = $this->defaultMountPointName($archiveFile->getName());
-    $archiveInfo['defaultTargetBaseName'] = $this->defaultTargetBaseName($archiveFile->getName());
+    if ($archiveInfo !== null) {
+      $this->logInfo('ARCHIVE INFO ' . print_r($archiveInfo->toArray(), true));
+      // tweak the mount point proposal according to the user preferences
+      $archiveInfo = new DTO\ArchiveInfo(
+        $archiveInfo,
+        defaultMountPoint: $this->defaultMountPointName($archiveFile->getName()),
+        defaultTargetBaseName: $this->defaultTargetBaseName($archiveFile->getName()),
+      );
+    }
 
     if (!empty($e)) {
       $exceptionMessage = $e->getMessage();
@@ -173,11 +199,11 @@ class ArchiveController extends Controller
       }
     }
 
-    return self::dataResponse([
-      'messages' => $messages,
-      'archiveStatus' => $archiveStatus,
-      'archiveInfo' => $archiveInfo,
-    ], $httpStatus);
+    return new DTO\ArchiveInfoResponse(
+      messages: $messages,
+      archiveStatus: $archiveStatus,
+      archiveInfo: $archiveInfo,
+    )->response($httpStatus);
   }
 
   /**
@@ -189,10 +215,17 @@ class ArchiveController extends Controller
    *
    * @param bool $stripCommonPathPrefix
    *
-   * @return DataResponse
+   * @return DataResponse|JSONResponse
    */
-  #[Attribute\NoAdminRequired]
-  public function extract(string $archivePath, ?string $targetPath, ?string $passPhrase = null, bool $stripCommonPathPrefix = false):DataResponse
+  #[CoreAttributes\NoAdminRequired]
+  #[CoreAttributes\FrontpageRoute(
+    verb: 'POST',
+    url: '/archive/extract/{archivePath}/{targetPath}',
+    defaults: [
+      'targetPath' => null,
+    ],
+  )]
+  public function extract(string $archivePath, ?string $targetPath, #[SensitiveParameter] ?string $passPhrase = null, ?bool $stripCommonPathPrefix = null): DataResponse|JSONResponse
   {
     $archivePath = urldecode($archivePath);
     if ($targetPath) {
@@ -204,7 +237,7 @@ class ArchiveController extends Controller
       /** @var File $archiveFile */
       $archiveFile = $userFolder->get($archivePath);
     } catch (FileNotFoundException $e) {
-      return self::grumble($this->l->t('Unable to open the archive file "%s".', $archivePath));
+      throw new EnduserNotificationException($this->l->t('Unable to open the archive file "%s".', $archivePath));
     }
 
     try {
@@ -213,17 +246,16 @@ class ArchiveController extends Controller
         ArchiveStorage::PARAMETER_ARCHIVE_PASS_PHRASE => $passPhrase,
         ArchiveStorage::PARAMETER_APP_CONTAINER => $this->appContainer,
         ArchiveStorage::PARAMETER_ARCHIVE_SIZE_LIMIT => $this->actualArchiveSizeLimit(),
-        ArchiveStorage::PARAMETER_STRIP_COMMON_PATH_PREFIX => $stripCommonPathPrefix,
-
+        ArchiveStorage::PARAMETER_STRIP_COMMON_PATH_PREFIX => $stripCommonPathPrefix ?? $this->stripCommonPathPrefixDefault,
       ]);
     } catch (ToolkitExceptions\ArchiveTooLargeException $e) {
       $uncompressedSize = $e->getActualSize();
       if ($uncompressedSize > $this->archiveBombLimit) {
-        return self::grumble($this->l->t('The archive file "%1$s" appears to be a zip-bomb: uncompressed size %2$s > admin limit %3$s.', [
+        throw new EnduserNotificationException($this->l->t('The archive file "%1$s" appears to be a zip-bomb: uncompressed size %2$s > admin limit %3$s.', [
           $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveBombLimit)
         ]));
       } else {
-        return self::grumble($this->l->t('The archive file "%1$s" is too large: uncompressed size %2$s > user limit %3$s.', [
+        throw new EnduserNotificationException($this->l->t('The archive file "%1$s" is too large: uncompressed size %2$s > user limit %3$s.', [
           $archivePath, $this->formatStorageValue($uncompressedSize), $this->formatStorageValue($this->archiveSizeLimit)
         ]));
       }
@@ -240,13 +272,13 @@ class ArchiveController extends Controller
       $targetParent = $userFolder->get($targetDirName);
     } catch (Throwable $t) {
       $this->logException($e);
-      return self::grumble($this->l->t('Unable to open the target parent folder "%s".', $targetDirName));
+      throw new EnduserNotificationException($this->l->t('Unable to open the target parent folder "%s".', $targetDirName));
     }
 
     $nonExistingTarget = $targetParent->getNonExistingName($targetBaseName);
     if ($nonExistingTarget != $targetBaseName) {
       if (!$this->autoRenameExtractTarget) {
-        return self::grumble($this->l->t('The target folder "%s" already exists and auto-rename is not enabled.', $targetPath));
+        throw new EnduserNotificationException($this->l->t('The target folder "%s" already exists and auto-rename is not enabled.', $targetPath));
       }
       $targetPath = $targetDirName . Constants::PATH_SEPARATOR . $nonExistingTarget;
       $targetBaseName = $nonExistingTarget;
@@ -270,8 +302,8 @@ class ArchiveController extends Controller
       if ($locked) {
         try {
           $targetStorage->releaseLock($targetInternalPath, ILockingProvider::LOCK_EXCLUSIVE, $lockingProvider);
-        } catch (Throwable $t) {
-          $this->logException($t, 'Unable to unlock ' . $targetInternalPath);
+        } catch (Throwable $tt) {
+          $this->logException($tt, 'Unable to unlock ' . $targetInternalPath);
         }
       }
       try {
@@ -281,25 +313,50 @@ class ArchiveController extends Controller
         $targetFolder->delete();
       } catch (FileNotFoundException $e) {
         // really ignore this one: nothing to be cleaned up
-      } catch (Throwable $t) {
-        $this->logException($t, 'Unable to cleanup target path.');
+      } catch (Throwable $tt) {
+        $this->logException($tt, 'Unable to cleanup target path.');
         // otherwise ignore
       }
 
-      return self::grumble($this->l->t('Unable to extract "%1$s" to "%2$s": "%3$s".', [
-        $archivePath, $targetPath, $t->getMessage()
-      ]));
+      // Some drivers like to throw exceptions with invalid encoding ...
+      $exceptionMessage = mb_scrub($t->getMessage(), 'UTF-8');
+      throw new EnduserNotificationException(
+        $this->l->t('Unable to extract "%1$s" to "%2$s": "%3$s".', [
+          $archivePath, $targetPath, $exceptionMessage
+        ]),
+        previous: $t,
+      );
     }
 
     /** @var Folder $targetFolder */
     $targetFolder = $userFolder->get($targetPath);
 
-    return self::dataResponse([
-      'archivePath' => $archivePath,
-      'targetFileId' => $targetFolder->getId(),
-      'targetPath' => $targetPath,
-      'targetFolder' => $this->formatNode($targetFolder),
-      'messages' => [ $this->l->t('Extracting "%1$s" to "%2$s" succeeded.', [ $archivePath, $targetPath ]) ],
-    ]);
+    $messages = [ $this->l->t('Extracting "%1$s" to "%2$s" succeeded.', [ $archivePath, $targetPath ]) ];
+
+    // Warn about archive members which collapse onto the same name after
+    // Unicode normalization: only one of them could be extracted as a distinct
+    // file, the others would otherwise be lost without notice.
+    try {
+      $archiveService = $this->archiveServiceFactory->get($archiveFile);
+      $archiveService->setSizeLimit($this->actualArchiveSizeLimit());
+      $archiveService->open($archiveFile, password: $passPhrase);
+      foreach ($archiveService->getCollidingMembers() as $rawNames) {
+        $messages[] = $this->l->t(
+          'Warning: the archive members %1$s map to the same name after Unicode normalization; only one of them could be extracted.',
+          [ '"' . implode('", "', $rawNames) . '"' ],
+        );
+      }
+      $archiveService->close();
+    } catch (Throwable $t) {
+      $this->logException($t, 'Unable to check the archive for colliding member names.');
+    }
+
+    return (new DTO\ArchiveExtractResponse(
+      archivePath: $archivePath,
+      targetFileId: $targetFolder->getId(),
+      targetPath: $targetPath,
+      targetFolder: $this->formatNode($targetFolder),
+      messages: $messages,
+    ))->response();
   }
 }

@@ -24,12 +24,56 @@
       {{ t(appName, 'Archive Manager, Admin Settings') }}
     </h1>
     <NcSettingsSection :name="t(appName, 'Archive Extraction')">
-      <TextField v-model:value="settings.humanArchiveSizeLimit"
+      <TextField v-model="settings.humanArchiveSizeLimit"
                  :label="t(appName, 'Archive Size Limit')"
                  :hint="t(appName, 'Disallow archive extraction for archives with decompressed size larger than this limit.')"
                  :disabled="loading"
                  @submit="saveTextInput('archiveSizeLimit', settings.humanArchiveSizeLimit)"
       />
+      <div class="settings-option">
+        <input id="files-archive-admin-extract-strip-common-prefix"
+               v-model="settings.extractStripCommonPathPrefixDefault"
+               type="checkbox"
+               class="checkbox"
+               :disabled="loading"
+               @change="saveSetting('extractStripCommonPathPrefixDefault')"
+        >
+        <label for="files-archive-admin-extract-strip-common-prefix">
+          {{ t(appName, 'strip common path prefix by default') }}
+        </label>
+      </div>
+      <span class="hint">
+        {{ t(appName, 'This only defines the default for all users, everybody may override it in the personal settings.') }}
+      </span>
+    </NcSettingsSection>
+    <NcSettingsSection :name="t(appName, 'Archive Mounting')">
+      <div class="settings-option">
+        <input id="files-archive-admin-mount-disabled"
+               v-model="settings.mountDisabled"
+               type="checkbox"
+               class="checkbox"
+               :disabled="loading"
+               @change="saveSetting('mountDisabled')"
+        >
+        <label for="files-archive-admin-mount-disabled">
+          {{ t(appName, 'disable mounting of archive files by default') }}
+        </label>
+      </div>
+      <div class="settings-option">
+        <input id="files-archive-admin-mount-strip-common-prefix"
+               v-model="settings.mountStripCommonPathPrefixDefault"
+               type="checkbox"
+               class="checkbox"
+               :disabled="loading"
+               @change="saveSetting('mountStripCommonPathPrefixDefault')"
+        >
+        <label for="files-archive-admin-mount-strip-common-prefix">
+          {{ t(appName, 'strip common path prefix by default') }}
+        </label>
+      </div>
+      <span class="hint">
+        {{ t(appName, 'This only defines the default for all users, everybody may override it in the personal settings.') }}
+      </span>
     </NcSettingsSection>
     <NcSettingsSection :name="t(appName, 'Diagnostics')" class="diagnostics">
       <h3>{{ t(appName, "Archive Formats") }}</h3>
@@ -43,8 +87,9 @@
 </template>
 
 <script setup lang="ts">
+import type { DiagnosticsResponse } from '../build/ts-types/php-modules/Controller/DTO.ts'
+
 import axios from '@nextcloud/axios'
-import { showError /* , showSuccess, showInfo, TOAST_PERMANENT_TIMEOUT */ } from '@nextcloud/dialogs'
 import { translate as t } from '@nextcloud/l10n'
 import {
   NcSettingsSection,
@@ -62,7 +107,9 @@ import { generateUrl as generateAppUrl } from './toolkit/util/generate-url.ts'
 import {
   fetchSettings,
   saveConfirmedSetting,
+  saveSimpleSetting,
 } from './toolkit/util/settings-sync.ts'
+import { showError /* , showSuccess, showInfo, TOAST_PERMANENT_TIMEOUT */ } from './toolkit/util/toasts.ts'
 
 const cloudVersionClasses = computed<string[]>(() => cloudVersionClassesImport)
 const loading = ref(true)
@@ -70,6 +117,9 @@ const loading = ref(true)
 const settings = reactive({
   archiveSizeLimit: 0x100000000,
   humanArchiveSizeLimit: '',
+  mountDisabled: false,
+  mountStripCommonPathPrefixDefault: false,
+  extractStripCommonPathPrefixDefault: false,
 })
 
 const diagnostics = reactive({
@@ -93,11 +143,20 @@ const saveTextInput = async (settingsKey: string, value?: string, force?: boolea
   return saveConfirmedSetting({ value, section: 'admin', settingsKey, force, settings })
 }
 
+const saveSetting = async (settingsKey: string) => {
+  if (loading.value) {
+    // avoid ping-pong by reactivity
+    logger.info('SKIPPING SETTINGS-SAVE DURING LOAD', settingsKey)
+    return
+  }
+  return saveSimpleSetting({ settingsKey, section: 'admin', settings })
+}
+
 /** TBD */
 async function getFormatsMatrix() {
   try {
-    const response = await axios.get(generateAppUrl('diagnostics/archive/formats'))
-    diagnostics.formats = response?.data?.html || null
+    const response = await axios.get<DiagnosticsResponse>(generateAppUrl('diagnostics/archive/formats'))
+    diagnostics.formats = response.data.html
     if (!diagnostics.formats) {
       logger.error('UNEXPECTED RESPONSE', response)
     }
@@ -111,9 +170,9 @@ async function getFormatsMatrix() {
 /** TBD */
 async function getDriversStatus() {
   try {
-    const response = await axios.get(generateAppUrl('diagnostics/archive/drivers'))
-    diagnostics.drivers = response?.data?.html || null
-    if (!diagnostics.formats) {
+    const response = await axios.get<DiagnosticsResponse>(generateAppUrl('diagnostics/archive/drivers'))
+    diagnostics.drivers = response.data.html
+    if (!diagnostics.drivers) {
       logger.error('UNEXPECTED RESPONSE', response)
     }
     return
@@ -127,13 +186,11 @@ async function getDriversStatus() {
 <style lang="scss" scoped>
 .cloud-version {
   --cloud-theme-filter: var(--background-invert-if-dark);
-  &.cloud-version-major-24 {
-    --cloud-theme-filter: none;
-  }
 }
 .templateroot :deep() {
   h1.title {
-    margin: 30px 30px 0px;
+    margin: calc(var(--default-grid-baseline) * 7);
+    margin-bottom: 0;
     font-size:revert;
     font-weight:revert;
     position: relative;
@@ -159,6 +216,10 @@ async function getDriversStatus() {
     &.flex-center {
       align-items:center;
     }
+  }
+  .hint {
+    color: var(--color-text-lighter);
+    font-size: 80%;
   }
   .diagnostics_output {
     min-height: 2ex;

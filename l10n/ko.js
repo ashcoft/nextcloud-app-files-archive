@@ -22,9 +22,9 @@ OC.L10N.register(
     "Archive \"%1$s\" has been unmounted from \"%2$s\"." : "압축 파일 \"%1$s\"이(가) \"%2$s\"에서 마운트 해제되었습니다",
     "Unknown admin setting: \"%1$s\"" : "알 수 없는 관리자 설정: \"%1$s\"",
     "The admin setting \"%1$s\" is read-only" : "관리자 설정 \"%1$s\"은(는) 읽기 전용입니다",
+    "Value \"%1$s\" for setting \"%2$s\" is not convertible to boolean." : "설정 \"%2$s\"의 값 \"%1$s\"을(를) boolean으로 변환할 수 없습니다",
     "Unknown personal setting: \"%1$s\"" : "알 수 없는 개인 설정: \"%1$s\"",
     "The personal setting \"%1$s\" is read-only" : "개인 설정 \"%1$s\"은(는) 읽기 전용입니다",
-    "Value \"%1$s\" for setting \"%2$s\" is not convertible to boolean." : "설정 \"%2$s\"의 값 \"%1$s\"을(를) boolean으로 변환할 수 없습니다",
     "Unknown personal setting: \"%s\"." : "알 수 없는 개인 설정: \"%s\"",
     "Archive Manager" : "압축 관리자",
     "The archive file {source} will be mounted as a virtual folder at {destination}." : "압축 파일 {source}을(를) 가상 폴더 {destination}에 마운트합니다",
@@ -32,7 +32,6 @@ OC.L10N.register(
     "Mounting {source} at {destination} has failed: {message}" : "{source}을(를) {destination}에 마운트하지 못함: {message}",
     "Extracting {source} to {destination} has failed: {message}" : "{source}을(를) {destination}에 압축 해제하지 못함: {message}",
     "Mounting {source} at {destination} has failed." : "{source}을(를) {destination}에 마운트하지 못했습니다",
-    "Extacting {source} to {destination} bas failed." : "{source}을(를) {destination}에 압축 해제하지 못했습니다",
     "Archive Explorer" : "압축 파일 탐색기",
     "Installation instructions:" : "설치 방법:",
     "Unable to open archive file %s (%s)" : "압축 파일 %s을(를) 열 수 없음 (%s)",
@@ -83,7 +82,6 @@ OC.L10N.register(
     "archive file size" : "압축 파일 크기",
     "creator's comment" : "생성한 사용자의 댓글",
     "unset" : "설정 해제",
-    "Mount Points" : "마운트 지점",
     "not mounted" : "마운트되지 않음",
     "Disconnect storage" : "저장소 연결 해제",
     "Not mounted, create a new mount point:" : "마운트되지 않았습니다. 새로운 마운트 지점을 만드십시오:",
@@ -91,6 +89,7 @@ OC.L10N.register(
     "Extract Archive" : "압축 해제",
     "Choose a directory to extract the archive to:" : "압축 해제할 경로를 지정하십시오:",
     "Mount Archive" : "압축 파일 마운트",
+    "Extract here" : "여기에 압축 풀기",
     "Archive" : "압축",
     "The archive \"{archivePath}\" is already mounted on \"{mountPointPath}\"." : "압축 파일 \"{archivePath}\"이(가) 이미 \"{mountPointPath}\"에 마운트됨",
     "Unable to obtain mount status for archive file \"{archivePath}\"." : "압축 파일 \"{archivePath}\"의 마운트 상태를 불러올 수 없음",
@@ -108,6 +107,7 @@ OC.L10N.register(
     "Unconfirmed, reverting to old value." : "확인되지 않음, 이전 값으로 되돌림",
     "Successfully set value for \"{settingsKey}\" to \"{displayValue}\"" : "\"{settingsKey}\"을(를) \"{displayValue}\"(으)로 설정함",
     "Setting \"{setting}\" has been unset successfully." : "설정 \"{setting}\"이(가) 해제되었습니다",
-    "Could not set value for \"{settingsKey}\" to \"{value}\": {message}" : "\"{settingsKey}\"을(를) \"{value}\"(으)로 설정할 수 없음: {message}"
+    "Could not set value for \"{settingsKey}\" to \"{value}\": {message}" : "\"{settingsKey}\"을(를) \"{value}\"(으)로 설정할 수 없음: {message}",
+    "Mount Points" : "마운트 지점"
 },
 "nplurals=1; plural=0;");

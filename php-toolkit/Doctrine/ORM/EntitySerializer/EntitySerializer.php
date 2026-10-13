@@ -159,6 +159,8 @@ class EntitySerializer
     if (str_starts_with($entityName, $this->commonPrefix)) {
       return substr($entityName, strlen($this->commonPrefix));
     }
+
+    return $entityName;
   }
 
   /**
@@ -210,6 +212,9 @@ class EntitySerializer
       $this->entityDepths[$entityClassName][$flatIdentifier] = $depth;
 
       $flatEntity = [];
+
+      // Make sure lazy objects are initialized
+      $this->entityManager->initializeObject($entity);
 
       // ordinary non-associative fields
       /** @var Mapping\FieldMapping $mapping */
@@ -287,7 +292,7 @@ class EntitySerializer
                 $entityName = null;
               }
               $flatTargetIdentifier = $this->flattenIdentifier($targetMetaData, $targetId);
-              $flatCollection[$key] = new EntityReference(
+              $flatCollection[$key] = new CollectionEntityReference(
                 flatIdentifier: $flatTargetIdentifier,
                 entityClassName: $entityName,
               );

@@ -7,6 +7,21 @@ import {
 const configOptions = [
   ...recommended,
   {
+    name: 'undo gitignores',
+    ignores: [
+      '!build',
+      'build/*',
+      '!build/ts-types/',
+    ],
+  },
+  {
+    languageOptions: {
+      globals: {
+        DEV_MODE: 'readonly',
+      },
+    },
+  },
+  {
     files: ['**/*.vue'],
     rules: {
       'vue/attribute-hyphenation': ['error', 'never'],
@@ -82,13 +97,13 @@ const configOptions = [
           },
         },
       ],
-      '@stylistic/padded-blocks': 'off',
       '@stylistic/indent': ['error', 2],
+      '@stylistic/indent-binary-ops': ['error', 2],
+      '@stylistic/padded-blocks': 'off',
       // 'n/no-unpublished-import': 'off',
       // 'n/no-unpublished-require': 'off',
       'no-tabs': ['error', {
         allowIndentationTabs: false,
-
       }],
       indent: ['error', 2],
       'no-mixed-spaces-and-tabs': 'error',
@@ -102,15 +117,28 @@ const configOptions = [
     },
   },
   globalIgnores([
-  // 'src/toolkit/util/file-node-helper.js',
-  // 'src/toolkit/util/file-download.js',
-  // 'src/toolkit/util/dialogs.js',
-  // 'src/toolkit/util/ajax.js',
-  // 'src/toolkit/util/jquery.js',
-  // 'src/toolkit/types/event-bus.d.ts',
-  // 'src/toolkit/util/axios-file-download.ts',
-  // 'src/toolkit/util/file-node-helper.ts',
-    'src/toolkit/util/nextcloud-sidebar-root.ts',
+    // not all toolkit files are actually used in this project (git subrepo
+    'src/toolkit/services/entity-factory.ts',
+    'src/toolkit/services/entity-repository.ts',
+    // 'src/toolkit/types/axios-type-guards.ts',
+    // 'src/toolkit/types/errors.ts',
+    // 'src/toolkit/types/event-bus.d.ts',
+    // 'src/toolkit/types/nextcloud-files.d.ts',
+    'src/toolkit/types/nextcloud.d.ts',
+    'src/toolkit/types/type-traits.ts',
+    // 'src/toolkit/types/vue-shim.d.ts',
+    'src/toolkit/util/axios-file-download.ts',
+    // 'src/toolkit/util/cloud-version-classes.ts',
+    // 'src/toolkit/util/console.ts',
+    // 'src/toolkit/util/dialog-alert.ts',
+    // 'src/toolkit/util/dialog-confirm.ts',
+    // 'src/toolkit/util/file-node-busy-indicator.ts',
+    // 'src/toolkit/util/generate-url.ts',
+    // 'src/toolkit/util/initial-state.ts',
+    // 'src/toolkit/util/on-document-loaded.ts',
+    // 'src/toolkit/util/pangram.ts',
+    // 'src/toolkit/util/settings-sync.ts',
+    // 'src/toolkit/util/file-node-helper.ts',
   ]),
   {
     files: ['**/*.vue'],

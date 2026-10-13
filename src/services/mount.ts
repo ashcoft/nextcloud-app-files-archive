@@ -17,59 +17,83 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type { INode, IView } from '@nextcloud/files';
-import type { ArchiveMount, GetArchiveMountResponse } from '../model/archive-mount.d.ts';
+import type { IFile, IFolder, IView } from '@nextcloud/files';
+import type {
+  ArchiveMountResponse,
+  MountStatusResponse,
+} from '../../build/ts-types/php-modules/Controller/DTO.ts';
 import type { InitialState } from '../types/initial-state.d.ts';
 
 import axios from '@nextcloud/axios';
-import { showError, showSuccess, TOAST_PERMANENT_TIMEOUT } from '@nextcloud/dialogs';
 import { emit } from '@nextcloud/event-bus';
-import { NodeStatus } from '@nextcloud/files';
 import { translate as t } from '@nextcloud/l10n';
 import { appName } from '../config.ts';
 import logger from '../console.ts';
 import { isAxiosErrorResponse } from '../toolkit/types/axios-type-guards.ts';
+import { clearFileNodeBusy, setFileNodeBusy } from '../toolkit/util/file-node-busy-indicator.ts';
 import { fileInfoToNode } from '../toolkit/util/file-node-helper.ts';
 import generateAppUrl from '../toolkit/util/generate-url.ts';
 import getInitialState from '../toolkit/util/initial-state.ts';
+import { showError, showInfo, showSuccess, TOAST_PERMANENT_TIMEOUT } from '../toolkit/util/toasts.ts';
 
 const initialState = getInitialState<InitialState>();
 
-const openMountPoint = async (mountNode: INode, view: IView) => {
+const updateFilesView = async (mountNode: IFolder, view: IView, enterMount: boolean = false) => {
   // maybe also navigate to the folder (of course only on synchronous mount requests)
   try {
-    await OCP.Files.Router.goToRoute(
-      null,
-      { view: view.id, fileid: String(mountNode.id) },
-      { dir: mountNode.path },
-    );
+    logger.info('FILES ARCHIVE ROUTER NAVIGATION', {
+      view: view.id,
+      fileid: String(mountNode.id),
+      dir: mountNode.dirname,
+      mountNode,
+    });
+    if (enterMount) {
+      await OCP.Files.Router.goToRoute(
+        null,
+        { view: view.id, fileid: String(mountNode.id) },
+        { dir: mountNode.path },
+      );
+    } else {
+      await OCP.Files.Router.goToRoute(
+        null,
+        { view: view.id, fileid: String(mountNode.id) },
+        { dir: mountNode.dirname },
+      );
+    }
   } catch (error) {
     logger.error(error);
     showError(t(appName, 'Mounting the archive was seemingly successful, but navigating to the mount point failed: "{error}".', { error: error + '' }));
   }
 };
 
-const mount = async (node: INode, view: IView) => {
-  const savedNodeStatus = node.status;
+/**
+ * Mount the given archiveFile node at the default location.
+ *
+ * @param archiveFile The archive file to use for the mount.
+ *
+ * @param view The current file view which is updated as apropriate.
+ */
+const mount = async (archiveFile: IFile, view: IView) => {
 
-  const encodedPath = encodeURIComponent(node.path);
+  const archiveFilePath = archiveFile.path;
+
+  const encodedPath = encodeURIComponent(archiveFilePath);
 
   const mountStatusUrl = generateAppUrl('archive/mount/{encodedPath}', { encodedPath }, undefined);
 
   try {
-    const response = await axios.get<GetArchiveMountResponse>(mountStatusUrl);
+    const response = await axios.get<MountStatusResponse>(mountStatusUrl);
     const data = response.data;
     if (data.mounted) {
-      node.status = NodeStatus.LOADING;
-      emit('files:node:updated', node);
+      setFileNodeBusy(archiveFile);
       const mount = data.mounts[0];
-      const mountNode = fileInfoToNode(mount.mountPoint);
+      const mountPoint = fileInfoToNode(mount.mountPoint);
+      mountPoint.attributes['is-mount-root'] = true;
       const mountPointPath = mount.mountPointPath;
       // make it relative
-      showError(t(appName, 'The archive "{archivePath}" is already mounted on "{mountPointPath}".', { archivePath: node.path, mountPointPath }), { timeout: TOAST_PERMANENT_TIMEOUT });
-      await openMountPoint(mountNode, view);
-      node.status = savedNodeStatus;
-      emit('files:node:updated', node);
+      showInfo(t(appName, 'The archive "{archivePath}" is already mounted on "{mountPointPath}".', { archivePath: archiveFilePath, mountPointPath }), { timeout: TOAST_PERMANENT_TIMEOUT });
+      await updateFilesView(mountPoint, view);
+      clearFileNodeBusy();
       return null;
     }
     try {
@@ -80,33 +104,31 @@ const mount = async (node: INode, view: IView) => {
         logger.info('DATA', data);
         const mountPointPath = data.targetPath;
         showSuccess(t(appName, 'The archive "{archivePath}" will be mounted asynchronously on "{mountPointPath}", you will be notified on completion.', {
-          archivePath: node.path,
+          archivePath: archiveFilePath,
           mountPointPath,
         }));
       } else {
-        node.status = NodeStatus.LOADING;
-        emit('files:node:updated', node);
+        setFileNodeBusy(archiveFile);
         const mountUrl = mountStatusUrl;
-        const response = await axios.post<ArchiveMount>(mountUrl);
+        const response = await axios.post<ArchiveMountResponse>(mountUrl);
         const data = response.data;
         logger.info('DATA', data);
         const mountPointPath = data.mountPointPath;
         showSuccess(t(appName, 'The archive "{archivePath}" has been mounted on "{mountPointPath}".', {
-          archivePath: node.path,
+          archivePath: archiveFilePath,
           mountPointPath,
         }));
-        const mountNode = fileInfoToNode(data.mountPoint);
-        mountNode.attributes['is-mount-root'] = true;
-        logger.info('MOUNT NODE', mountNode);
+        const mountPoint = fileInfoToNode(data.mountPoint);
+        mountPoint.attributes['is-mount-root'] = true;
+        logger.info('MOUNT NODE', mountPoint);
 
         // Update files list
-        emit('files:node:created', mountNode);
+        emit('files:node:created', mountPoint);
 
         // maybe also navigate to the folder (of course only on synchronous mount requests)
-        await openMountPoint(mountNode, view);
+        await updateFilesView(mountPoint, view);
 
-        node.status = undefined;
-        emit('files:node:updated', node);
+        clearFileNodeBusy();
       }
     } catch (e) {
       logger.error('ERROR', e);
@@ -141,7 +163,7 @@ const mount = async (node: INode, view: IView) => {
       }
       if (!messages.length) {
         messages.push(t(appName, 'Unable to obtain mount status for archive file "{archivePath}".', {
-          archivePath: node.path,
+          archivePath: archiveFilePath,
         }));
       }
       for (const message of messages) {
@@ -149,8 +171,9 @@ const mount = async (node: INode, view: IView) => {
       }
     }
   }
-  node.status = savedNodeStatus;
-  emit('files:node:updated', node);
+
+  clearFileNodeBusy();
+
   return null;
 };
 

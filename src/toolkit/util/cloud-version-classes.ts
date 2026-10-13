@@ -1,5 +1,7 @@
 /**
- * @copyright Copyright (c) 2023, 2025 Claus-Justus Heine <himself@claus-justus-heine.de>
+ * @file
+ *
+ * @copyright Copyright (c) 2023, 2025, 2026 Claus-Justus Heine <himself@claus-justus-heine.de>
  * @author Claus-Justus Heine <himself@claus-justus-heine.de>
  * @license AGPL-3.0-or-later
  *
@@ -15,9 +17,11 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @module
  */
 
-const cloudVersion = OC.config.versionstring.split('.');
+export const cloudVersion = OC.config.versionstring.split('.').map((x: string|number) => +x);
 const cloudVersionClasses = [
   'cloud-version',
   'cloud-version-major-' + cloudVersion[0],

@@ -17,14 +17,14 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import type { ActionContext } from '@nextcloud/files';
 import type { NotificationEvent } from './toolkit/types/event-bus.d.ts';
+import type { FileInfoDTO } from './toolkit/util/file-node-helper.ts';
 import type { InitialState } from './types/initial-state.d.ts';
 import type { DestinationParameter } from './types/notification.d.ts';
 
 import { emit, subscribe } from '@nextcloud/event-bus';
 import {
-  type ActionContext,
-
   DefaultType,
   Permission,
   registerFileAction,
@@ -33,11 +33,10 @@ import { translate as t } from '@nextcloud/l10n';
 import logoSvg from '../img/app.svg?raw';
 import { appName } from './config.ts';
 import logger from './console.ts';
+import extract from './services/extract.ts';
 import mount from './services/mount.ts';
 import { fileInfoToNode } from './toolkit/util/file-node-helper.ts';
 import getInitialState from './toolkit/util/initial-state.ts';
-
-import './webpack-setup.ts';
 
 const initialState = getInitialState<InitialState>();
 const archiveMimeTypes: Array<string> = initialState?.archiveMimeTypes || [];
@@ -53,24 +52,52 @@ subscribe('notifications:notification:received', (event: NotificationEvent) => {
     return;
   }
   try {
-    const node = fileInfoToNode(JSON.parse(destinationData.folder));
-    node.attributes['is-mount-root'] = true;
+    const mountPoint = fileInfoToNode(JSON.parse(destinationData.folder) as FileInfoDTO<'folder'>);
+    mountPoint.attributes['is-mount-root'] = true;
 
-    logger.debug('FILES_ARCHIVE EMIT NODE CREATED', { node });
+    logger.debug('FILES_ARCHIVE EMIT NODE CREATED', { mountPoint });
 
-    emit('files:node:created', node);
+    emit('files:node:created', mountPoint);
   } catch (error) {
     logger.error('Error, unable to decode mount folder node', { error, event });
   }
 });
 
+if (!initialState?.mountDisabled) {
+  registerFileAction({
+    id: appName,
+    displayName(_context) {
+      return t(appName, 'Mount Archive');
+    },
+    title(_context: ActionContext) {
+      return t(appName, 'Mount Archive');
+    },
+    iconSvgInline(_context: ActionContext) {
+      return logoSvg;
+    },
+    enabled(context: ActionContext) {
+      if (context.nodes.length !== 1) {
+        return false;
+      }
+      const node = context.nodes[0];
+      if (!(node.permissions & Permission.READ)) {
+        return false;
+      }
+      return node.mime !== undefined && archiveMimeTypes.findIndex((mime) => mime === node.mime) >= 0;
+    },
+    exec: (context) => mount(context.nodes[0], context.view),
+    default: initialState?.mountByLeftClick ? DefaultType.DEFAULT : undefined,
+    order: -1000,
+  });
+}
+
 registerFileAction({
-  id: appName,
+  id: appName + '-extract',
   displayName(_context) {
-    return t(appName, 'Mount Archive');
+    return t(appName, 'Extract here');
   },
   title(_context: ActionContext) {
-    return t(appName, 'Mount Archive');
+    return t(appName, 'Extract the archive to a new folder in the current directory');
   },
   iconSvgInline(_context: ActionContext) {
     return logoSvg;
@@ -85,7 +112,6 @@ registerFileAction({
     }
     return node.mime !== undefined && archiveMimeTypes.findIndex((mime) => mime === node.mime) >= 0;
   },
-  exec: (context) => mount(context.nodes[0], context.view),
-  default: initialState?.mountByLeftClick ? DefaultType.DEFAULT : undefined,
-  order: -1000,
+  exec: (context) => extract(context.nodes[0]),
+  order: -999,
 });

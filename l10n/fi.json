@@ -20,6 +20,7 @@
     "Login succeeded." : "Kirjautuminen onnistui.",
     "Login failed." : "Kirjautuminen epäonnistui.",
     "%1$s (renamed)" : "%1$s (nimetty uudelleen)",
+    "renamed file" : "uudelleennimetty tiedosto",
     "bytes" : "tavua",
     "pick a color" : "valitse väri",
     "undo color choice" : "kumoa värivalinta",
@@ -42,17 +43,18 @@
     "creator's comment" : "tekijän kommentti",
     "Passphrase" : "Tunnuslause",
     "archive passphrase" : "arkiston tunnuslause",
-    "Show Passphrase" : "Näytä tunnuslause",
-    "Mount Points" : "Liitospisteet",
     "not mounted" : "ei liitetty",
     "Disconnect storage" : "Katkaise yhteys tallennustilaan",
     "Extract Archive" : "Pura arkisto",
     "Choose a directory to extract the archive to:" : "Valitse kansio, johon arkisto puretaan:",
+    "Extract here" : "Pura tähän",
     "Archive" : "Arkisto",
     "close" : "sulje",
     "No" : "Ei",
     "Yes" : "Kyllä",
     "reason unknown" : "tuntematon syy",
-    "Confirmation Required" : "Vahvistus vaaditaan"
+    "Confirmation Required" : "Vahvistus vaaditaan",
+    "Show Passphrase" : "Näytä tunnuslause",
+    "Mount Points" : "Liitospisteet"
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }
