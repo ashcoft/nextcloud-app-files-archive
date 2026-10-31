@@ -64,18 +64,21 @@ jobs:
             jq -r --arg current "$TAG" \
               'add | map(select(.draft == false and .prerelease == false and .tag_name != $current)) | sort_by(.published_at) | last | .tag_name // empty')"
 
-          if [[ -z "$previous_stable" ]]; then
-            echo "::error::Could not find a previous stable release for $TAG."
-            exit 1
-          fi
-
           body_path="$RUNNER_TEMP/release-notes.md"
-          printf 'See [CHANGELOG.md](%s/blob/%s/CHANGELOG.md).\n\n**Full Changelog**: %s/compare/%s...%s\n' \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            "$TAG" \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            "$previous_stable" \
-            "$TAG" > "$body_path"
+          if [[ -n "$previous_stable" ]]; then
+            printf 'See [CHANGELOG.md](%s/blob/%s/CHANGELOG.md).\n\n**Full Changelog**: %s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              "$TAG" \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              "$previous_stable" \
+              "$TAG" > "$body_path"
+          else
+            # First stable release in this repository (e.g. a fresh fork with
+            # no releases yet): there is nothing to compare against.
+            printf 'See [CHANGELOG.md](%s/blob/%s/CHANGELOG.md).\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              "$TAG" > "$body_path"
+          fi
           echo "body_path=$body_path" >> "$GITHUB_OUTPUT"
 
       - name: Attach to the GitHub release
