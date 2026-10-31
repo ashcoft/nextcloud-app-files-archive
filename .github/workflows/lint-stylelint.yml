@@ -32,9 +32,9 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        # `npm ci` installs the committed lockfile exactly; --ignore-scripts
-        # keeps dependency lifecycle scripts from running in CI.
-        run: npm ci --ignore-scripts
+        # package-lock.json is not tracked, so `npm ci` is not available.
+        # --ignore-scripts keeps dependency lifecycle scripts from running in CI.
+        run: npm install --ignore-scripts
 
       - name: Run stylelint
         run: npm run stylelint
