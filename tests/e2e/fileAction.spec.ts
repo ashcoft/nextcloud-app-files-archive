@@ -72,6 +72,33 @@ function registeredActions(page: Page): Promise<string[]> {
   })
 }
 
+/**
+ * Evaluate the `enabled` predicate of a registered action for the given files.
+ * `permissions` defaults to read access.
+ */
+function actionEnabled(
+  page: Page,
+  id: string,
+  files: Array<{ mime: string, permissions?: number }>,
+): Promise<boolean | null> {
+  return page.evaluate(({ id, files }) => {
+    const scope = (window as unknown as {
+      _nc_files_scope?: { v4_0?: { fileActions?: Map<string, { enabled?: (context: unknown) => boolean }> } }
+    })._nc_files_scope
+    const action = scope?.v4_0?.fileActions?.get(id)
+    if (!action?.enabled) {
+      return null
+    }
+    const nodes = files.map((file) => ({
+      type: 'file',
+      mime: file.mime,
+      permissions: file.permissions ?? 1,
+      basename: 'archive',
+    }))
+    return action.enabled({ nodes })
+  }, { id, files })
+}
+
 test('registers the mount and extract file actions', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -81,5 +108,21 @@ test('registers the mount and extract file actions', async ({ page }) => {
   expect(await registeredActions(page)).toEqual(
     expect.arrayContaining(['files_archive', 'files_archive-extract']),
   )
+  expect(errors).toEqual([])
+})
+
+test('the actions follow the configured archive mime types', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+
+  await loadEntry(page, 'files-hooks')
+
+  // The mime types come from the app's initial state (see loadEntry), so this
+  // fails if the bundle does not read its configured state.
+  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/zip' }])).toBe(true)
+  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/x-tar' }])).toBe(true)
+  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/pdf' }])).toBe(false)
+  // Read permission is required.
+  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/zip', permissions: 0 }])).toBe(false)
   expect(errors).toEqual([])
 })

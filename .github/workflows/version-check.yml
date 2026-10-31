@@ -3,6 +3,9 @@
 # appinfo/info.xml is what Nextcloud and the release pipeline read, and
 # package.json mirrors it. They must not drift apart, or a release archive can
 # carry the wrong version.
+#
+# Tag pushes are covered too: the release workflow publishes on `vX.Y.Z*` tags,
+# so a tag pointing at mismatched files must fail here as well.
 name: Version check
 
 on:
@@ -10,6 +13,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 concurrency:
   # Key PR runs by number so forks sharing a branch name do not cancel each
