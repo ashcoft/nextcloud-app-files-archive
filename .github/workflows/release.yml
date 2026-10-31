@@ -18,14 +18,22 @@ permissions:
   contents: write
 
 jobs:
+  version:
+    # Gate the release on the version guard: a tag whose appinfo/info.xml and
+    # package.json disagree must not produce a published archive.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/version-check.yml
+
   build:
+    needs: version
     permissions:
       contents: read
     uses: ./.github/workflows/build-appstore.yml
 
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download the tarball artifact

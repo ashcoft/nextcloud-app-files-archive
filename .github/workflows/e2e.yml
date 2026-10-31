@@ -52,7 +52,8 @@ jobs:
         # package-lock.json is not tracked, so `npm ci` is not available.
         # --ignore-scripts keeps dependency lifecycle scripts from running in CI.
         # S8543 wants a committed lockfile; the Makefile generates and
-        # gitignores package-lock.json, so a pinned install is not possible.
+        # gitignores package-lock.json. The lint/test tooling is instead
+        # pinned to exact versions in package.json, so it cannot drift.
         run: npm install --ignore-scripts  # NOSONAR(githubactions:S8543)
 
       - name: Install Playwright browsers

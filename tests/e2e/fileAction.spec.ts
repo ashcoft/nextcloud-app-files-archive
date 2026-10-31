@@ -117,12 +117,15 @@ test('the actions follow the configured archive mime types', async ({ page }) =>
 
   await loadEntry(page, 'files-hooks')
 
-  // The mime types come from the app's initial state (see loadEntry), so this
-  // fails if the bundle does not read its configured state.
-  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/zip' }])).toBe(true)
-  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/x-tar' }])).toBe(true)
-  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/pdf' }])).toBe(false)
-  // Read permission is required.
-  expect(await actionEnabled(page, 'files_archive', [{ mime: 'application/zip', permissions: 0 }])).toBe(false)
+  // Both actions share the same enabled() logic. The mime types come from the
+  // app's initial state (see loadEntry), so this fails if the bundle does not
+  // read its configured state.
+  for (const id of ['files_archive', 'files_archive-extract']) {
+    expect(await actionEnabled(page, id, [{ mime: 'application/zip' }])).toBe(true)
+    expect(await actionEnabled(page, id, [{ mime: 'application/x-tar' }])).toBe(true)
+    expect(await actionEnabled(page, id, [{ mime: 'application/pdf' }])).toBe(false)
+    // Read permission is required.
+    expect(await actionEnabled(page, id, [{ mime: 'application/zip', permissions: 0 }])).toBe(false)
+  }
   expect(errors).toEqual([])
 })
