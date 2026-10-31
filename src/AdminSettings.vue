@@ -187,6 +187,7 @@ async function getDriversStatus() {
 .cloud-version {
   --cloud-theme-filter: var(--background-invert-if-dark);
 }
+
 .templateroot :deep() {
   h1.title {
     margin: calc(var(--default-grid-baseline) * 7);
@@ -194,12 +195,12 @@ async function getDriversStatus() {
     font-size:revert;
     font-weight:revert;
     position: relative;
-    padding-left:60px;
+    padding-inline-start:60px;
     height:32px;
     &::before {
       content: "";
       position: absolute;
-      left: 0;
+      inset-inline-start: 0;
       top: 0;
       width: 32px;
       height: 32px;
@@ -269,6 +270,7 @@ async function getDriversStatus() {
     &.ansi_color_bg_brwhite { background-color: #fdf6e3 }
   }
 }
+
 [data-themes*='light'], [data-themes*='default'] {
   .templateroot :deep(.diagnostics *:not(.loading)) {
     &.ansi_color_fg_black { color: #eee8d5 }

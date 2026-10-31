@@ -73,7 +73,7 @@ jobs:
       fail-fast: false
       matrix:
         # Keep in sync with the dependencies in appinfo/info.xml.
-        nextcloud: ['33', '34', '35']
+        nextcloud: ['34', '35']
         database: [sqlite, pgsql, mysql]
     name: install (NC ${{ matrix.nextcloud }}, ${{ matrix.database }})
     steps:
@@ -97,12 +97,12 @@ jobs:
       matrix:
         include:
           # From the latest release on the same server version.
-          - {from-release: latest, from-nextcloud: '33', nextcloud: '33', database: pgsql}
           - {from-release: latest, from-nextcloud: '34', nextcloud: '34', database: sqlite}
           - {from-release: latest, from-nextcloud: '35', nextcloud: '35', database: mysql}
-          # Servers upgraded from 32 still run 1.2.x when the updater
-          # replaces the app; drop this once that path is no longer relevant.
-          - {from-release: v1.2.8, from-nextcloud: '32', nextcloud: '33', database: pgsql}
+          # Cross-major upgrade at the supported boundary: the previous release
+          # still runs on 33, and the server is upgraded to 34 while the updater
+          # replaces the app.
+          - {from-release: latest, from-nextcloud: '33', nextcloud: '34', database: pgsql}
     name: update (${{ matrix.from-release }} on NC ${{ matrix.from-nextcloud }} -> NC ${{ matrix.nextcloud }}, ${{ matrix.database }})
     steps:
       - name: Checkout

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Frontend unit tests (Vitest). These run against the sources with a jsdom
+# environment and a small set of global stubs, so they stay fast and do not
+# need a Nextcloud server.
+name: Node tests
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: node-tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: unit tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        # package-lock.json is not tracked, so `npm ci` is not available.
+        # --ignore-scripts keeps dependency lifecycle scripts from running in CI.
+        # S8543 wants a committed lockfile; the Makefile generates and
+        # gitignores package-lock.json. The lint/test tooling is instead
+        # pinned to exact versions in package.json, so it cannot drift.
+        run: npm install --ignore-scripts  # NOSONAR(githubactions:S8543)
+
+      - name: Run unit tests
+        run: npm run test:unit

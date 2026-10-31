@@ -27,3 +27,6 @@ tide-errors.log
 composer-scoped*.lock*
 vendor-scoped
 .vite/
+/test-results/
+/playwright-report/
+/blob-report/
