@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# End-to-end tests of the built frontend. The app archive is built by the
+# reusable build-appstore.yml workflow (the same build the release ships),
+# then unpacked and exercised in a real browser with Playwright. The tests
+# load the shipped bundles, so they fail when a change breaks the frontend
+# after it is bundled, not just after it type-checks.
+name: E2E tests
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: e2e-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-appstore.yml
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download the app archive
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+
+      - name: Unpack the archive
+        run: |
+          mkdir -p unpacked
+          tar -xzf files_archive-${{ needs.build.outputs.version }}.tar.gz -C unpacked
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        # package-lock.json is not tracked, so `npm ci` is not available.
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        env:
+          # Test the bundles from the archive that is actually shipped.
+          FILES_ARCHIVE_JS_DIR: ${{ github.workspace }}/unpacked/files_archive/js
+        run: npm run test:e2e
+
+      - name: Upload the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
