@@ -276,6 +276,9 @@ const saveSetting = async (settingsKey: string) => {
       &.icon-error {
         padding-inline-start:20px;
         background-position:left;
+        [dir='rtl'] & {
+          background-position:right;
+        }
       }
     }
   }

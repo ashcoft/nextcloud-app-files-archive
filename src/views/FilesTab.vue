@@ -1178,6 +1178,9 @@ onUnmounted(() => {
   a.icon {
     background-position: left;
     padding-inline-start:20px;
+    [dir='rtl'] & {
+      background-position: right;
+    }
   }
   .files-tab-entry {
     min-height:44px;

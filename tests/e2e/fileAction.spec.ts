@@ -11,7 +11,8 @@ const appPrefix = '/apps/files_archive/js/'
 
 /** File name of the built bundle for a Vite entry point. */
 function bundleFor(entry: string): string {
-  const name = readdirSync(jsDir).find((file) => new RegExp(`^files_archive-${entry}-.*\\.mjs$`).test(file))
+  const prefix = `files_archive-${entry}-`
+  const name = readdirSync(jsDir).find((file) => file.startsWith(prefix) && file.endsWith('.mjs'))
   if (!name) {
     throw new Error(`No built bundle for entry "${entry}" in ${jsDir} - run the build first`)
   }

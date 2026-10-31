@@ -33,6 +33,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # Analysis needs no Git credentials; keep the token out of .git/config.
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
