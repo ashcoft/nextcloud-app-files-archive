@@ -53,7 +53,7 @@
     },
     "patches": {
       "jarodxxx/zippy": {
-        "Fix PHP 8 deprecations bloating the log files": "composer-patches/jarodxxx/zippy/fix-deprecations.patch"
+        "Fix PHP 8 deprecations bloating the log files": "dev-scripts/lib/patches/jarodxxx/zippy/fix-deprecations.patch"
       }
     }
   }
