@@ -49,9 +49,9 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        # package-lock.json is not tracked, so `npm ci` is not available.
-        # --ignore-scripts keeps dependency lifecycle scripts from running in CI.
-        run: npm install --ignore-scripts
+        # `npm ci` installs the committed lockfile exactly; --ignore-scripts
+        # keeps dependency lifecycle scripts from running in CI.
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright browsers
         run: ./node_modules/.bin/playwright install --with-deps chromium
