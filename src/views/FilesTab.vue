@@ -1177,7 +1177,10 @@ onUnmounted(() => {
   }
   a.icon {
     background-position: left;
-    padding-left:20px;
+    padding-inline-start:20px;
+    [dir='rtl'] & {
+      background-position: right;
+    }
   }
   .files-tab-entry {
     min-height:44px;
@@ -1220,7 +1223,7 @@ onUnmounted(() => {
         }
       }
       .label {
-        padding-right:0.5ex;
+        padding-inline-end:0.5ex;
       }
     }
     :deep(.list-item__wrapper) {

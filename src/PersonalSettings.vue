@@ -230,18 +230,19 @@ const saveSetting = async (settingsKey: string) => {
     --cloud-theme-filter: var(--background-invert-if-dark);
   }
 }
+
 .templateroot :deep() {
   h1.title {
     margin: 30px 30px 0px;
     font-size:revert;
     font-weight:revert;
     position: relative;
-    padding-left:60px;
+    padding-inline-start:60px;
     height:32px;
     &::before {
       content: "";
       position: absolute;
-      left: 0;
+      inset-inline-start: 0;
       top: 0;
       width: 32px;
       height: 32px;
@@ -273,8 +274,11 @@ const saveSetting = async (settingsKey: string) => {
       font-weight:bold;
       font-style:italic;
       &.icon-error {
-        padding-left:20px;
+        padding-inline-start:20px;
         background-position:left;
+        [dir='rtl'] & {
+          background-position:right;
+        }
       }
     }
   }
