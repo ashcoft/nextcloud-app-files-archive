@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/ashcoft/nextcloud-app-files-archive/compare/v1.3.2...v1.3.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **l10n:** Update translations from Transifex ([fb96cd9](https://github.com/ashcoft/nextcloud-app-files-archive/commit/fb96cd9a9e5403256e16ff9372128161da147b72))
+
 ## [1.3.2](https://github.com/ashcoft/nextcloud-app-files-archive/compare/v1.3.1...v1.3.2) (2026-11-01)
 
 
