@@ -56,7 +56,7 @@ export default {
     ['@semantic-release/commit-analyzer', { preset: 'conventionalcommits', releaseRules }],
     '@semantic-release/release-notes-generator',
     ['@semantic-release/changelog', { changelogFile: 'CHANGELOG.md' }],
-    ['@semantic-release/exec', { prepareCmd: 'make bump-version VERSION=${nextRelease.version}' }],
+    ['@semantic-release/exec', { prepareCmd: 'node scripts/bump-version.mjs ${nextRelease.version}' }],
     [
       '@semantic-release/git',
       {
