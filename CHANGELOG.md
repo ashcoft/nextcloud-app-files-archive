@@ -1,3 +1,29 @@
+## [1.3.2](https://github.com/ashcoft/nextcloud-app-files-archive/compare/v1.3.1...v1.3.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **build:** migrate remaining TypeScript transformer references ([d2c81a1](https://github.com/ashcoft/nextcloud-app-files-archive/commit/d2c81a1c151ace6af7e9306bdcf9db5c25543c82))
+* **dev-scripts:** fix autoloading. ([bbccb96](https://github.com/ashcoft/nextcloud-app-files-archive/commit/bbccb96a7861f8a5e3ccc92a03f69849aea649bb))
+* **l10n:** Update translations from Transifex ([62abda1](https://github.com/ashcoft/nextcloud-app-files-archive/commit/62abda1d1486249a262de7ee8040fb9237a92ccb))
+* **l10n:** Update translations from Transifex ([2cc54cb](https://github.com/ashcoft/nextcloud-app-files-archive/commit/2cc54cbc7c5677541ac9f7ded437c47e82f110ab))
+* **l10n:** Update translations from Transifex ([07961b5](https://github.com/ashcoft/nextcloud-app-files-archive/commit/07961b57e2c86af5e0eb4a1f98ee66752b03212b))
+* **l10n:** Update translations from Transifex ([adb5dc7](https://github.com/ashcoft/nextcloud-app-files-archive/commit/adb5dc792a8a2cf6980ae11022c4c444244ac28f))
+* **l10n:** Update translations from Transifex ([319e9f9](https://github.com/ashcoft/nextcloud-app-files-archive/commit/319e9f932df2fa431c07f6c5ac79fc14a84fafb6))
+* **l10n:** Update translations from Transifex ([28d3929](https://github.com/ashcoft/nextcloud-app-files-archive/commit/28d39292511ad042debab336063618da591cb778))
+* **l10n:** Update translations from Transifex ([4359fd5](https://github.com/ashcoft/nextcloud-app-files-archive/commit/4359fd524e03cff765b2f7b4ae01f0e4c2ebf129))
+* **l10n:** Update translations from Transifex ([845ec87](https://github.com/ashcoft/nextcloud-app-files-archive/commit/845ec87b7603e44427cfc5692d23e7b2eb02155b))
+* **l10n:** Update translations from Transifex ([9deb3da](https://github.com/ashcoft/nextcloud-app-files-archive/commit/9deb3da2200c3dbfb7f95d3890e070f1b8177f6a))
+* **l10n:** Update translations from Transifex ([de505f6](https://github.com/ashcoft/nextcloud-app-files-archive/commit/de505f646fb1194f706e63aa77eaf6a5b3b4f6f3))
+* **l10n:** Update translations from Transifex ([1d546a3](https://github.com/ashcoft/nextcloud-app-files-archive/commit/1d546a34a7b8fbc07668112bb247a45562778711))
+* **l10n:** Update translations from Transifex ([e1d378e](https://github.com/ashcoft/nextcloud-app-files-archive/commit/e1d378e7f45f101e718cae2dbc4383e72db43927))
+* **l10n:** Update translations from Transifex ([dd91b50](https://github.com/ashcoft/nextcloud-app-files-archive/commit/dd91b5078dd09c23f82ab44dbc607da391c5b210))
+* **l10n:** Update translations from Transifex ([c396286](https://github.com/ashcoft/nextcloud-app-files-archive/commit/c3962863b5ddeb8c1a5d49008d32942679ded583))
+* **l10n:** Update translations from Transifex ([3d47aa5](https://github.com/ashcoft/nextcloud-app-files-archive/commit/3d47aa5f1ecc7a547eb65bf4aed0bc93fe26608f))
+* **l10n:** Update translations from Transifex ([9b899ca](https://github.com/ashcoft/nextcloud-app-files-archive/commit/9b899cabfe391abed2035e964bf2bf58f5a479e1))
+* **upgrade:** bootstrap Composer toolkit before app migrations ([3c046cb](https://github.com/ashcoft/nextcloud-app-files-archive/commit/3c046cbe0e7e937e56a4010db746077a69ad5096))
+* **upgrade:** survive the in-process update from 1.2.x during a server upgrade ([c33a997](https://github.com/ashcoft/nextcloud-app-files-archive/commit/c33a997b04103826c152c26935329d42e1e71617))
+
 # Changelog
 All notable changes to this project will be documented in this file.
 
