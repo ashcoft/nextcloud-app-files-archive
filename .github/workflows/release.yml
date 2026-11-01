@@ -35,7 +35,9 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     # Only the canonical repository owns the releases; forks do not publish.
-    if: github.repository_owner == 'ashcoft'
+    # Restrict to main: a manual dispatch could otherwise select another branch
+    # and run that branch's release configuration with a write-scoped token.
+    if: github.repository_owner == 'ashcoft' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
       issues: write
@@ -51,6 +53,9 @@ jobs:
           # version; it pushes the release commit itself.
           fetch-depth: 0
           persist-credentials: false
+          # `make bump-version` parses the top-level Makefile, which includes
+          # dev-scripts/lib/makefile/setup.mk and dev-scripts/MakeHelp.
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -114,9 +119,24 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact }}
 
+      - name: Verify the archive version matches the release
+        env:
+          EXPECTED: ${{ needs.release.outputs.version }}
+        run: |
+          actual=$(tar -xzOf "files_archive-${{ needs.build.outputs.version }}.tar.gz" \
+            files_archive/appinfo/info.xml |
+            python3 -c "import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).getroot().findtext('version') or '')")
+          echo "archive version: $actual (expected $EXPECTED)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Archive version ($actual) does not match the release ($EXPECTED)"
+            exit 1
+          fi
+
       - name: Attach the archive and publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job has no checkout, so gh needs the repository explicitly.
+          GH_REPO: ${{ github.repository }}
           TAG: v${{ needs.release.outputs.version }}
         run: |
           gh release upload "$TAG" "files_archive-${{ needs.build.outputs.version }}.tar.gz" --clobber

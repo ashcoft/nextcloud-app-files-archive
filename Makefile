@@ -236,15 +236,14 @@ bump-version:
 ifndef VERSION
 	$(error VERSION is undefined. Usage: make bump-version VERSION=x.y.z)
 endif
-	@sed -i "s|<version>[^<]*</version>|<version>$(VERSION)</version>|" $(APP_INFO)
-	@node -e "const fs=require('fs');const p='package.json';const pkg=JSON.parse(fs.readFileSync(p,'utf8'));pkg.version='$(VERSION)';fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+'\n');"
-	@info_version=$$(sed -n 's/.*<version>\(.*\)<\/version>.*/\1/p' $(APP_INFO) | head -n 1 | xargs); \
+	@node scripts/bump-version.mjs "$(VERSION)"
+	@info_version=$$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('$(APP_INFO)').getroot().findtext('version') or '')"); \
 	pkg_version=$$(node -p "require('./package.json').version"); \
 	if [ "$$info_version" != "$(VERSION)" ] || [ "$$pkg_version" != "$(VERSION)" ]; then \
 		echo "ERROR: version bump failed (info.xml=$$info_version package.json=$$pkg_version expected $(VERSION))" 1>&2; \
 		exit 1; \
 	fi; \
-	echo "Version bumped to $(VERSION)"
+	echo "Verified info.xml and package.json at $(VERSION)"
 .PHONY: bump-version
 
 #@@ Run the test-suite
