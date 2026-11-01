@@ -59,7 +59,9 @@ jobs:
 
       - name: Install dependencies
         # semantic-release needs no build; skip dependency lifecycle scripts.
-        run: npm install --ignore-scripts
+        # S8543 wants a committed lockfile; the Makefile generates and gitignores
+        # package-lock.json, so a pinned install is not possible.
+        run: npm install --ignore-scripts  # NOSONAR(githubactions:S8543)
 
       - name: Semantic release
         id: semantic
@@ -72,13 +74,13 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
-            npx semantic-release --dry-run
+            ./node_modules/.bin/semantic-release --dry-run
             echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           before=$(git rev-parse HEAD)
-          npx semantic-release
+          ./node_modules/.bin/semantic-release
           after=$(git rev-parse HEAD)
 
           # Read the tag semantic-release created on this commit rather than
