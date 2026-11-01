@@ -8,6 +8,12 @@ name: Build app archive
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to the calling ref)
+        required: false
+        type: string
+        default: ''
     outputs:
       version:
         description: The app version read from appinfo/info.xml
@@ -30,6 +36,7 @@ jobs:
         with:
           # dev-scripts/MakeHelp is a git submodule required by the Makefile.
           submodules: recursive
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Install xpath
         # dev-scripts/lib/makefile/setup.mk needs the xpath binary to parse
