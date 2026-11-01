@@ -31,4 +31,13 @@ const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
 pkg.version = version
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
 
+// Re-read both files and confirm the version landed in each, so a partial
+// write cannot pass unnoticed.
+const infoVersion = /<version>([^<]*)<\/version>/.exec(readFileSync(infoPath, 'utf8'))?.[1]
+const pkgVersion = JSON.parse(readFileSync(pkgPath, 'utf8')).version
+if (infoVersion !== version || pkgVersion !== version) {
+  console.error(`ERROR: version bump failed (info.xml=${infoVersion} package.json=${pkgVersion} expected ${version})`)
+  process.exit(1)
+}
+
 console.log(`Version bumped to ${version}`)

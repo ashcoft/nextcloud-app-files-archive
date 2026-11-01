@@ -237,13 +237,6 @@ ifndef VERSION
 	$(error VERSION is undefined. Usage: make bump-version VERSION=x.y.z)
 endif
 	@node scripts/bump-version.mjs "$(VERSION)"
-	@info_version=$$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('$(APP_INFO)').getroot().findtext('version') or '')"); \
-	pkg_version=$$(node -p "require('./package.json').version"); \
-	if [ "$$info_version" != "$(VERSION)" ] || [ "$$pkg_version" != "$(VERSION)" ]; then \
-		echo "ERROR: version bump failed (info.xml=$$info_version package.json=$$pkg_version expected $(VERSION))" 1>&2; \
-		exit 1; \
-	fi; \
-	echo "Verified info.xml and package.json at $(VERSION)"
 .PHONY: bump-version
 
 #@@ Run the test-suite

@@ -53,9 +53,6 @@ jobs:
           # version; it pushes the release commit itself.
           fetch-depth: 0
           persist-credentials: false
-          # `make bump-version` parses the top-level Makefile, which includes
-          # dev-scripts/lib/makefile/setup.mk and dev-scripts/MakeHelp.
-          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
