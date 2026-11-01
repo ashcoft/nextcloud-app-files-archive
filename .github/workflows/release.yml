@@ -1,87 +1,146 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Attach the ready-to-use app archive to the GitHub release whenever a
-# `vX.Y.Z*` tag is pushed. The build itself lives in the reusable
-# build-appstore.yml workflow, shared with the CI checks on pull
-# requests. The job can also be triggered manually (workflow_dispatch)
-# to test the build without creating a tag; in that case the tarball is
-# only kept as a workflow artifact and not attached to any release.
-name: Build release tarball
+# Release on every push to main: semantic-release derives the next version from
+# the conventional commit messages, bumps appinfo/info.xml and package.json,
+# commits them, creates the tag and a DRAFT GitHub release. The build job then
+# builds the app archive from that tag and attaches it before publishing the
+# draft, so a release never goes public without its assets.
+#
+# The build itself lives in the reusable build-appstore.yml workflow, shared
+# with the CI checks on pull requests, so the release artifact and the checked
+# one can never drift apart.
+name: Release
 
 on:
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
-  workflow_dispatch: {}
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry run (no release)
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  version:
-    # Gate the release on the version guard: a tag whose appinfo/info.xml and
-    # package.json disagree must not produce a published archive.
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    # Only the canonical repository owns the releases; forks do not publish.
+    # Restrict to main: a manual dispatch could otherwise select another branch
+    # and run that branch's release configuration with a write-scoped token.
+    if: github.repository_owner == 'ashcoft' && github.ref == 'refs/heads/main'
     permissions:
-      contents: read
-    uses: ./.github/workflows/version-check.yml
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      published: ${{ steps.semantic.outputs.published }}
+      version: ${{ steps.semantic.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # semantic-release needs the full history and tags to pick the next
+          # version; it pushes the release commit itself.
+          fetch-depth: 0
+          persist-credentials: false
+          # `make bump-version` parses the top-level Makefile, which includes
+          # dev-scripts/lib/makefile/setup.mk and dev-scripts/MakeHelp.
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        # semantic-release needs no build; skip dependency lifecycle scripts.
+        # S8543 wants a committed lockfile; the Makefile generates and gitignores
+        # package-lock.json, so a pinned install is not possible.
+        run: npm install --ignore-scripts  # NOSONAR(githubactions:S8543)
+
+      - name: Semantic release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            ./node_modules/.bin/semantic-release --dry-run
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before=$(git rev-parse HEAD)
+          ./node_modules/.bin/semantic-release
+          after=$(git rev-parse HEAD)
+
+          # Read the tag semantic-release created on this commit rather than
+          # comparing globally newest tags.
+          version=$(git tag --points-at HEAD --sort=-v:refname | head -n1)
+          if [ -n "$version" ] && [ "$after" != "$before" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
-    needs: version
+    needs: release
+    if: needs.release.outputs.published == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/build-appstore.yml
+    with:
+      ref: v${{ needs.release.outputs.version }}
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [version, build]
+    needs: [release, build]
+    if: needs.release.outputs.published == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download the tarball artifact
         uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.artifact }}
 
-      - name: Determine whether this is a pre-release
-        id: kind
+      - name: Verify the archive version matches the release
         env:
-          TAG: ${{ github.ref_name }}
+          EXPECTED: ${{ needs.release.outputs.version }}
         run: |
-          # Only plain x.y.z prefixed with v is a final release.
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Prepare release notes
-        id: notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          previous_stable="$(gh api --paginate --slurp \
-            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
-            jq -r --arg current "$TAG" \
-              'add | map(select(.draft == false and .prerelease == false and .tag_name != $current)) | sort_by(.published_at) | last | .tag_name // empty')"
-
-          if [[ -z "$previous_stable" ]]; then
-            echo "::error::Could not find a previous stable release for $TAG."
+          actual=$(tar -xzOf "files_archive-${{ needs.build.outputs.version }}.tar.gz" \
+            files_archive/appinfo/info.xml |
+            python3 -c "import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).getroot().findtext('version') or '')")
+          echo "archive version: $actual (expected $EXPECTED)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::Archive version ($actual) does not match the release ($EXPECTED)"
             exit 1
           fi
 
-          body_path="$RUNNER_TEMP/release-notes.md"
-          printf 'See [CHANGELOG.md](%s/blob/%s/CHANGELOG.md).\n\n**Full Changelog**: %s/compare/%s...%s\n' \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            "$TAG" \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            "$previous_stable" \
-            "$TAG" > "$body_path"
-          echo "body_path=$body_path" >> "$GITHUB_OUTPUT"
-
-      - name: Attach to the GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: ${{ steps.kind.outputs.prerelease }}
-          files: files_archive-${{ needs.build.outputs.version }}.tar.gz
-          body_path: ${{ steps.notes.outputs.body_path }}
-          fail_on_unmatched_files: true
+      - name: Attach the archive and publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # This job has no checkout, so gh needs the repository explicitly.
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.release.outputs.version }}
+        run: |
+          gh release upload "$TAG" "files_archive-${{ needs.build.outputs.version }}.tar.gz" --clobber
+          # Publish only now that the archive is attached, so a release never
+          # goes public without its assets.
+          gh release edit "$TAG" --draft=false
+          echo "Published release $TAG"
